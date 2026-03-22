@@ -42,6 +42,7 @@ use cell_dt_core::{
         StemCellDivisionRateState,
         HormonalFertilityState,
         ThermodynamicState,
+        ROSCascadeState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -59,6 +60,7 @@ pub mod development;
 pub mod interventions;
 pub mod hormonal_fertility;
 pub mod thermodynamics;
+pub mod ros_cascade;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -71,6 +73,7 @@ pub use damage::{DamageParams, accumulate_damage, accumulate_appendage_damage, a
 pub use development::{division_rate_per_year, base_ros_level, stage_for_age};
 pub use interventions::{Intervention, InterventionKind, InterventionEffect};
 pub use thermodynamics::{ThermodynamicParams, update_thermodynamic_state, arrhenius_multiplier};
+pub use ros_cascade::{ROSCascadeParams, update_ros_cascade};
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)
@@ -255,6 +258,9 @@ pub struct HumanDevelopmentModule {
     /// P22: параметры термодинамики — общие для всего модуля.
     /// Применяются при наличии ThermodynamicState у сущности.
     thermodynamic_params: thermodynamics::ThermodynamicParams,
+    /// P23: параметры ROS-каскада — общие для всего модуля.
+    /// Применяются при наличии ROSCascadeState у сущности.
+    ros_cascade_params: ros_cascade::ROSCascadeParams,
 }
 
 /// Агрегированные морфогенные поля по всем живым нишам.
@@ -282,6 +288,7 @@ impl HumanDevelopmentModule {
             systemic_sasp_prev: 0.0,
             morphogen_aggregates: MorphogenAggregates::default(),
             thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
+            ros_cascade_params: ros_cascade::ROSCascadeParams::default(),
         }
     }
 
@@ -299,12 +306,18 @@ impl HumanDevelopmentModule {
             systemic_sasp_prev: 0.0,
             morphogen_aggregates: MorphogenAggregates::default(),
             thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
+            ros_cascade_params: ros_cascade::ROSCascadeParams::default(),
         }
     }
 
     /// P22: Задать параметры термодинамики (Аррениус, базовая температура).
     pub fn set_thermodynamic_params(&mut self, params: thermodynamics::ThermodynamicParams) {
         self.thermodynamic_params = params;
+    }
+
+    /// P23: Задать параметры ROS-каскада.
+    pub fn set_ros_cascade_params(&mut self, params: ros_cascade::ROSCascadeParams) {
+        self.ros_cascade_params = params;
     }
 
     /// P11: Добавить терапевтическую интервенцию в расписание.
@@ -872,9 +885,10 @@ impl SimulationModule for HumanDevelopmentModule {
             Option<&MitochondrialState>,
             Option<&mut cell_dt_core::components::AppendageProteinState>,
             Option<&mut ThermodynamicState>,
+            Option<&mut ROSCascadeState>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt)) in query.iter() {
+        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt)) in query.iter() {
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -1039,7 +1053,14 @@ impl SimulationModule for HumanDevelopmentModule {
                 // ciliary_function, CAII как клинический биомаркер) использовали
                 // актуальные значения от независимого компонента.
                 if let Some(ref mut appendage) = appendage_opt {
-                    let oh_level = comp.centriolar_damage.ros_level.powi(2);
+                    // P23: если ROSCascadeState присутствует — используем effective_oh()
+                    // (Фентон: H₂O₂ × Fe²⁺ → OH·, с усилением от лабильного железа).
+                    // Иначе: грубое приближение ros_level² (обратная совместимость).
+                    let oh_level = ros_cascade_opt.as_ref()
+                        .map_or_else(
+                            || comp.centriolar_damage.ros_level.powi(2),
+                            |r| r.effective_oh(self.ros_cascade_params.fenton_amplification),
+                        );
                     let base_mitophagy = mito_opt.map_or(0.0, |m| m.mitophagy_flux);
                     let effective_mitophagy = (base_mitophagy + iv_effect.extra_mitophagy).min(1.0);
                     let age_years = comp.age_years() as f32;
@@ -1065,6 +1086,27 @@ impl SimulationModule for HumanDevelopmentModule {
                     dam.ninein_integrity = appendage.ninein;
                     dam.cep170_integrity = appendage.cep170;
                     dam.update_functional_metrics();
+                }
+
+                // 3е. P23: ROSCascadeState — 4-переменный ROS-каскад (уровень -3).
+                // Обновляем O₂⁻/H₂O₂/OH·/Fe²⁺ из митохондриального источника.
+                // После обновления:
+                //   ros_level синхронизируется ← H₂O₂ (обратная совместимость)
+                //   OH· передаётся в AppendageProteinState вместо ros_level²
+                if let Some(ref mut ros_cas) = ros_cascade_opt {
+                    let mito_ros = mito_opt.map_or(0.1, |m| m.ros_production);
+                    let autophagy_flux = 0.4_f32; // TODO: из AutophagyState если есть
+                    let age_years = comp.age_years() as f32;
+                    ros_cascade::update_ros_cascade(
+                        ros_cas,
+                        mito_ros,
+                        autophagy_flux,
+                        &self.ros_cascade_params,
+                        age_years,
+                        dt_years,
+                    );
+                    // Синхронизация ros_level ← H₂O₂ (обратная совместимость)
+                    comp.centriolar_damage.ros_level = ros_cas.hydrogen_peroxide;
                 }
 
                 // 3д. P22: ThermodynamicState — обновление термодинамики.

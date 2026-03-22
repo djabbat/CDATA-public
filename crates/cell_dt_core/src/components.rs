@@ -897,6 +897,117 @@ impl Default for ThermodynamicState {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROSCascadeState — ECS-компонент (Уровень -3: молекулярный, ROS-каскад)
+//
+// Детализирует единый скаляр `ros_level` в 4-переменный каскад:
+//
+//   Митохондрии → O₂⁻ (супероксид)
+//     ↓ SOD1/SOD2 (супероксид-дисмутаза)
+//   H₂O₂ (пероксид водорода)
+//     ↓ каталаза / GPx → H₂O + O₂  (детоксикация)
+//     ↓ Fe²⁺ (Фентон: Fe²⁺ + H₂O₂ → OH· + Fe³⁺ + OH⁻)
+//   OH· (гидроксил-радикал) — наиболее разрушительный, t½ < 1 нс
+//     → окисляет CEP164 > CEP89 > Ninein > CEP170 (по чувствительности)
+//     → карбонилирует SAS-6/CEP135
+//   labile_iron: Fe²⁺/Fe³⁺ пул — катализирует Фентон, пополняется ферритином
+//
+// Связи:
+//   MitochondrialState.ros_production → superoxide (источник)
+//   superoxide → hydrogen_peroxide (SOD)
+//   hydrogen_peroxide + labile_iron → hydroxyl_radical (Фентон)
+//   hydroxyl_radical → AppendageProteinState (OH·-чувствительность)
+//   hydroxyl_radical → CentriolarDamageState.protein_carbonylation
+//   ros_level (обратная совместимость) = hydrogen_peroxide (основной измеримый ROS)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// ROS-каскад стволовой ниши — 4-переменная молекулярная модель (Уровень -3).
+///
+/// Заменяет скалярный `ros_level` в `CentriolarDamageState` детализированным
+/// каскадом: O₂⁻ → H₂O₂ → OH· с железо-Фентоновским ветвлением.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ROSCascadeState {
+    /// Супероксид-анион O₂⁻ [нормированный, 0..1].
+    ///
+    /// Источник: «утечка электронов» комплекса I/III митохондрий (~2% от O₂-потока).
+    /// Детоксикация: SOD1 (цитозоль), SOD2 (матрикс) → H₂O₂.
+    /// Физиологический уровень: 0.02–0.05. При дисфункции митохондрий: > 0.15.
+    /// Источник: Chance et al. 1979; Murphy 2009 Biochem J 417:1-13.
+    pub superoxide: f32,
+
+    /// Пероксид водорода H₂O₂ [нормированный, 0..1].
+    ///
+    /// Образуется из O₂⁻ через SOD (скорость пропорциональна superoxide).
+    /// Детоксикация: каталаза (пероксисомы), GPx (цитозоль/митохондрии).
+    /// Диффундирует через мембраны → системный сигнал (акваглицерин AQP8).
+    /// Соответствует `CentriolarDamageState.ros_level` для обратной совместимости.
+    /// Физиологический уровень: 0.03–0.08.
+    pub hydrogen_peroxide: f32,
+
+    /// Гидроксил-радикал OH· [нормированный, 0..1].
+    ///
+    /// Образуется через Фентон: Fe²⁺ + H₂O₂ → OH· + Fe³⁺ + OH⁻.
+    /// t½ < 1 нс — реагирует немедленно на месте образования.
+    /// Наиболее разрушительный ROS: окисляет боковые цепи Met/Cys/His/Arg.
+    /// Прямо управляет AppendageProteinState через oh_sensitivity.
+    /// Физиологический уровень: крайне мал (< 0.01); при патологии → 0.05–0.15.
+    pub hydroxyl_radical: f32,
+
+    /// Лабильный пул железа Fe²⁺/Fe³⁺ [нормированный, 0..1].
+    ///
+    /// Катализатор Фентона: высокий labile_iron → больше OH· при том же H₂O₂.
+    /// Пополняется: ферритин-деградация (аутофагия ферритина = феррофагия).
+    /// Снижается: ферропортин-экспорт, хелатирование (дефероксамин).
+    /// Связь с возрастом: накопление негемового железа в нейронах/HSC (Bartzokis 2004).
+    /// Физиологический уровень: 0.05–0.15.
+    pub labile_iron: f32,
+}
+
+impl ROSCascadeState {
+    /// Физиологическое начальное состояние (молодая ниша, нет стресса).
+    pub fn physiological() -> Self {
+        Self {
+            superoxide:       0.03,
+            hydrogen_peroxide: 0.05,
+            hydroxyl_radical: 0.005,
+            labile_iron:      0.10,
+        }
+    }
+
+    /// Вычислить эффективный уровень OH· для AppendageProteinState.
+    ///
+    /// OH· = hydroxyl_radical × (1 + labile_iron × fenton_amplification).
+    /// Чем больше лабильного железа, тем эффективнее Фентон-реакция.
+    /// `fenton_amplification` — усиление от Fe²⁺/Fe³⁺ (дефолт: 1.5).
+    pub fn effective_oh(&self, fenton_amplification: f32) -> f32 {
+        (self.hydroxyl_radical * (1.0 + self.labile_iron * fenton_amplification)).min(1.0)
+    }
+
+    /// Ros_level — совместимость с CentriolarDamageState (= H₂O₂).
+    ///
+    /// Используется для синхронизации `ros_level` при наличии ROSCascadeState.
+    pub fn ros_level_compat(&self) -> f32 {
+        self.hydrogen_peroxide
+    }
+
+    /// Суммарный оксидативный стресс [0..1].
+    ///
+    /// Взвешенная сумма: OH· вдвое опаснее H₂O₂, O₂⁻ — умеренно.
+    pub fn total_oxidative_stress(&self) -> f32 {
+        (self.superoxide * 0.3
+            + self.hydrogen_peroxide * 0.5
+            + self.hydroxyl_radical  * 2.0
+            + self.labile_iron       * 0.2)
+            .min(1.0) / (0.3 + 0.5 + 2.0 + 0.2)  // нормировка к [0..1]
+    }
+}
+
+impl Default for ROSCascadeState {
+    fn default() -> Self {
+        Self::physiological()
+    }
+}
+
 /// Тип ткани для специфики стволовых ниш.
 ///
 /// Объединяет биологические ниши (`Neural`, `Muscle`, …) и
