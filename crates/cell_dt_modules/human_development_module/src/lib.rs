@@ -45,6 +45,7 @@ use cell_dt_core::{
         ROSCascadeState,
         ZeHealthState,
         MicrotubuleState,
+        GolgiState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -65,6 +66,7 @@ pub mod thermodynamics;
 pub mod ros_cascade;
 pub mod ze_health;
 pub mod microtubule;
+pub mod golgi;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -80,6 +82,7 @@ pub use thermodynamics::{ThermodynamicParams, update_thermodynamic_state, arrhen
 pub use ros_cascade::{ROSCascadeParams, update_ros_cascade};
 pub use ze_health::update_ze_health_state;
 pub use microtubule::{MicrotubuleParams, update_microtubule_state};
+pub use golgi::{GolgiParams, update_golgi_state};
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)
@@ -270,6 +273,9 @@ pub struct HumanDevelopmentModule {
     /// P25: параметры динамики микротрубочек — общие для всего модуля.
     /// Применяются при наличии MicrotubuleState у сущности.
     microtubule_params: microtubule::MicrotubuleParams,
+    /// P26: параметры аппарата Гольджи — общие для всего модуля.
+    /// Применяются при наличии GolgiState у сущности.
+    golgi_params: golgi::GolgiParams,
 }
 
 /// Агрегированные морфогенные поля по всем живым нишам.
@@ -299,6 +305,7 @@ impl HumanDevelopmentModule {
             thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
             ros_cascade_params: ros_cascade::ROSCascadeParams::default(),
             microtubule_params: microtubule::MicrotubuleParams::default(),
+            golgi_params: golgi::GolgiParams::default(),
         }
     }
 
@@ -318,6 +325,7 @@ impl HumanDevelopmentModule {
             thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
             ros_cascade_params: ros_cascade::ROSCascadeParams::default(),
             microtubule_params: microtubule::MicrotubuleParams::default(),
+            golgi_params: golgi::GolgiParams::default(),
         }
     }
 
@@ -334,6 +342,11 @@ impl HumanDevelopmentModule {
     /// P25: Задать параметры динамики микротрубочек.
     pub fn set_microtubule_params(&mut self, params: microtubule::MicrotubuleParams) {
         self.microtubule_params = params;
+    }
+
+    /// P26: Задать параметры аппарата Гольджи.
+    pub fn set_golgi_params(&mut self, params: golgi::GolgiParams) {
+        self.golgi_params = params;
     }
 
     /// P11: Добавить терапевтическую интервенцию в расписание.
@@ -904,9 +917,10 @@ impl SimulationModule for HumanDevelopmentModule {
             Option<&mut ROSCascadeState>,
             Option<&mut ZeHealthState>,
             Option<&mut MicrotubuleState>,
+            Option<&mut GolgiState>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt, mut ze_health_opt, mut microtubule_opt)) in query.iter() {
+        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt, mut ze_health_opt, mut microtubule_opt, mut golgi_opt)) in query.iter() {
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -1097,6 +1111,17 @@ impl SimulationModule for HumanDevelopmentModule {
                         dt_years,
                     );
 
+                    // P26: GolgiState (лаг 1 шаг) — дополнительная потеря CEP164
+                    // из-за гипогликозилирования. Используем значение с предыдущего шага
+                    // (golgi обновляется в шаге 3и, после всех молекулярных расчётов).
+                    if let Some(ref golgi) = golgi_opt {
+                        let extra_loss = golgi.cep164_extra_loss_rate(
+                            self.golgi_params.cep164_glycosyl_sensitivity,
+                        ) * dt_years;
+                        appendage.cep164 = (appendage.cep164 - extra_loss).max(0.0);
+                        appendage.update_caii();
+                    }
+
                     // Синхронизация → CentriolarDamageState
                     let dam = &mut comp.centriolar_damage;
                     dam.cep164_integrity = appendage.cep164;
@@ -1175,6 +1200,27 @@ impl SimulationModule for HumanDevelopmentModule {
                     );
                     // Синхронизация → CentriolarDamageState (обратная совместимость)
                     comp.centriolar_damage.spindle_fidelity = mt.spindle_fidelity_derived;
+                }
+
+                // 3и. P26: GolgiState — динамика аппарата Гольджи (уровень -1).
+                // Обновляет fragmentation_index из ROS и SASP, пересчитывает
+                // glycosylation_capacity / cep164_glycosylation / vesicle_trafficking_rate.
+                // Эффект на CEP164 применяется с лагом 1 шаг (блок 3г выше).
+                if let Some(ref mut golgi) = golgi_opt {
+                    let ros_for_golgi = if let Some(ref ros_cas) = ros_cascade_opt {
+                        ros_cas.hydrogen_peroxide // H₂O₂ как основной ROS-сигнал для Гольджи
+                    } else {
+                        comp.centriolar_damage.ros_level
+                    };
+                    let autophagy_flux = 0.4_f32; // TODO: из AutophagyState если есть
+                    golgi::update_golgi_state(
+                        golgi,
+                        ros_for_golgi,
+                        infl_sasp,
+                        autophagy_flux,
+                        &self.golgi_params,
+                        dt_years,
+                    );
                 }
 
                 // Проверка на биологически нереалистичные значения

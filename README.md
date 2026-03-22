@@ -142,20 +142,29 @@ Additional loops:
 cell_dt/
 ├── crates/
 │   ├── cell_dt_core/
-│   │   └── src/components.rs          # New CDATA components
+│   │   └── src/components.rs          # All ECS components (P21–P26 included)
 │   └── cell_dt_modules/
 │       └── human_development_module/
 │           └── src/
-│               ├── lib.rs             # Main module (SimulationModule)
-│               ├── damage.rs          # Centriolar damage accumulation
-│               ├── inducers.rs        # S/H inducer system
+│               ├── lib.rs             # Main module (SimulationModule) — step 3г–3и
+│               ├── damage.rs          # Molecular damage + AppendageProteinState (P21)
+│               ├── thermodynamics.rs  # Arrhenius model, ThermodynamicState (P22)
+│               ├── ros_cascade.rs     # ROS ODE cascade O₂⁻→H₂O₂→OH·→Fe (P23)
+│               ├── ze_health.rs       # Ze Vector Theory bridge, ZeHealthState (P24)
+│               ├── microtubule.rs     # MT dynamics DII model, MicrotubuleState (P25)
+│               ├── golgi.rs           # Golgi fragmentation → CEP164 glycosylation (P26)
+│               ├── inducers.rs        # M/D inducer system, O₂-detachment
 │               ├── development.rs     # Developmental stages and rates
-│               ├── tissues.rs         # Tissue-specific stem niches
-│               └── organism.rs        # Organism-level integration
+│               ├── tissues.rs         # 11 tissue types, TissueState
+│               ├── aging.rs           # Aging phenotypes, senescence links
+│               └── interventions.rs   # 8 therapeutic interventions (P11)
 └── examples/
     └── src/bin/
-        └── human_lifecycle.rs         # Simulation from zygote to death
+        └── human_development_example.rs  # Full 100-year simulation
 ```
+
+**Tests: 259+** (human_development_module: 173+; full workspace: 259+)
+**Rule: before every git push — update README.md to reflect implemented components.**
 
 ---
 
@@ -251,6 +260,96 @@ pub struct OrganismState {
     pub muscle_mass:         f32,  // Muscle mass (sarcopenia) [0..1]
     pub is_alive:            bool,
 }
+```
+
+### `AppendageProteinState` — P21 (level −3: molecules)
+
+Independent kinetics of 4 centriolar appendage proteins:
+
+```rust
+pub struct AppendageProteinState {
+    pub cep164: f32,  // Distal (cilium initiation, IFT recruitment)  — OH· sensitivity 1.50
+    pub cep89:  f32,  // Distal (cilium docking)                      — OH· sensitivity 1.00
+    pub ninein: f32,  // Subdistal (MT minus-end anchoring)           — OH· sensitivity 0.75
+    pub cep170: f32,  // Subdistal (MT elongation)                    — OH· sensitivity 0.55
+    pub caii:   f32,  // CAII = cep164^0.40 × cep89^0.25 × ninein^0.20 × cep170^0.15
+}
+```
+
+CAII (Centriolar Appendage Integrity Index) is the primary EIC WP1 biomarker measured by
+U-ExM (n=288 donors, ages 20–80).
+
+### `ThermodynamicState` — P22 (level −4: atoms)
+
+Arrhenius amplification of damage rates by SASP-driven temperature:
+
+```rust
+pub struct ThermodynamicState {
+    pub local_temp_celsius:       f32,  // 36.6 + sasp × 2.4 °C
+    pub damage_rate_multiplier:   f32,  // exp(Ea_mean/R × (1/T_ref − 1/T))
+    pub entropy_production:       f32,  // cumulative ΔS from irreversible PTMs
+    pub ze_velocity_analog:       f32,  // entropy/(entropy + 2.0) → v*=0.456 at ~20yr
+}
+```
+
+Activation energies: carbonylation 50 / acetylation 40 / **aggregation 80** / phospho 45 /
+appendages 55 kJ/mol. At +2°C (chronic SASP): aggregation accelerates +22%.
+
+### `ROSCascadeState` — P23 (level −3: molecules)
+
+4-ODE ROS cascade with Fenton chemistry:
+
+```rust
+pub struct ROSCascadeState {
+    pub superoxide:         f32,  // O₂⁻ (mitochondrial leak ~2%)
+    pub hydrogen_peroxide:  f32,  // H₂O₂ (SOD product, catalase substrate)
+    pub hydroxyl_radical:   f32,  // OH· (Fenton: Fe²⁺ + H₂O₂ → OH·)
+    pub labile_iron:        f32,  // Fe²⁺ (ferritin degradation, ferroptosis risk)
+}
+// effective_oh(amp) = OH· × (1 + Fe²⁺ × amp) → CEP164/CEP89/Ninein/CEP170 damage
+```
+
+### `ZeHealthState` — P24 (level −5: Ze field)
+
+Maps CAII → Ze-velocity space (Ze Vector Theory, Tkemaladze):
+
+```rust
+pub struct ZeHealthState {
+    pub v:                    f32,  // v = 0.456 + 0.544 × (1 − CAII)
+    pub deviation_from_optimal: f32, // |v − 0.456|; 0 = young, 0.544 = collapse
+    pub ze_health_index:      f32,  // = CAII (normalised biomarker)
+    pub v_entropy:            f32,  // entropy/(entropy+2.0) from ThermodynamicState
+    pub v_consensus:          f32,  // mean(v, v_entropy) — structure + thermodynamics
+}
+```
+
+At CAII=1.0 (intact appendages): v = v* = 0.456 (optimal). At CAII→0: v→1.0 (collapse).
+
+### `MicrotubuleState` — P25 (level −2: cytoskeleton)
+
+Dynamic instability model replaces scalar `spindle_fidelity`:
+
+```rust
+pub struct MicrotubuleState {
+    pub polymerization_rate:       f32,  // 0.90 × (1 − acetylation × 0.70)
+    pub catastrophe_rate:          f32,  // 0.10 + phospho_dysreg × 0.80
+    pub dynamic_instability_index: f32,  // cat / (poly + cat)  [Mitchison & Kirschner 1984]
+    pub spindle_fidelity_derived:  f32,  // (1 − DII) × ninein_integrity → overrides CDS.spindle_fidelity
+}
+```
+
+### `GolgiState` — P26 (level −1: organelles)
+
+Golgi fragmentation → CEP164 glycosylation deficit → accelerated appendage loss:
+
+```rust
+pub struct GolgiState {
+    pub fragmentation_index:      f32,  // ROS/SASP → cisternae fragmentation [0..1]
+    pub glycosylation_capacity:   f32,  // (1 − frag × 0.85).clamp(0.1, 1.0)
+    pub cep164_glycosylation:     f32,  // glycosyl × 0.95 — N-glycosylation of CEP164
+    pub vesicle_trafficking_rate: f32,  // glycosyl × 0.90 — COPI/COPII to cilia
+}
+// Extra CEP164 loss = (1 − cep164_glycosylation) × sensitivity × dt
 ```
 
 ---
@@ -616,41 +715,41 @@ This is not accidental — neural stem cells have:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ -1  ОРГАНОИДЫ (мембранные)
             Митохондрии  ✅ Track E (мтДНК, ROS, mito_shield)
+            Гольджи      ✅ P26 GolgiState: фрагментация → гликозил. CEP164
             ЭПС шерохов. ❌ UPR-стресс, скорость синтеза белков
             ЭПС гладкая  ❌ Ca²⁺-буфер, детоксикация
-            Гольджи      ❌ гликозилирование CEP164 → распад придатков
             Лизосомы     ❌ аутолиз (есть AutophagyState — без органеллы)
             Пероксисомы  ❌ H₂O₂/каталаза баланс с ROS
             Ядро/хромат. ⚠️ TelomereState, DDRState, EpigeneticClockState
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ -2  ОРГАНЕЛЛЫ (немембранные / цитоскелет)
             Центриоли     ✅ CentriolarInducerPair, PTM (4 типа)
-            Дист. придатки ⚠️ 4 белка как один вектор → нужно раскрыть
-            Рибосомы      ❌ скорость трансляции = константа
+            Дист. придатки ✅ P21 AppendageProteinState (4 белка отдельно)
             Первичная рес. ✅ ciliary_function → Shh/Wnt
-            Микротрубочки ⚠️ spindle_fidelity (скаляр, нет динамики)
+            Микротрубочки ✅ P25 MicrotubuleState: DII → spindle_fidelity_derived
+            Рибосомы      ❌ скорость трансляции = константа
             Акт. филамен. ❌ кольцо сужения, миграция
             Промеж. фила. ❌ защита ядра от механических сил
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ -3  МОЛЕКУЛЫ
             PTM центриолей ✅ карбонилирование, ацетилирование,
                              агрегация, фосфорилирование (4 скаляра)
-            CEP164/89/Ninein/CEP170 ⚠️ агрегированы → нужно раскрыть
-            ROS-каскад    ❌ один ros_level вместо O₂⁻/H₂O₂/OH·/Fe²⁺
+            CEP164/89/Ninein/CEP170 ✅ P21 — 4 независимых протеина + CAII
+            ROS-каскад    ✅ P23 ROSCascadeState: O₂⁻→H₂O₂→OH·→Fe²⁺ (4 ОДУ)
             ATP/ADP       ❌ энергетический статус клетки
             Хроматин      ⚠️ methylation_age (1 число), нет 3D-структуры
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ -4  АТОМЫ (иерархическая термодинамика)
-            Ковалентные связи белков. Энергия активации PTM.
-            damage_rate ∝ exp(-Eₐ/kʙT): воспаление T↑ → повреждения↑
-            Карбонилирование C=O — необратимый маркер (конечный продукт).
-            Модель Больцмана для накопления PTM-состояний.
+            ✅ P22 ThermodynamicState: T = baseline + SASP
+            damage_rate × exp(Ea_mean/R × (1/T_ref − 1/T))
+            Ea: агрегация 80 > придатки 55 > карбонил. 50 > фосфо 45 > ацетил. 40 кДж/моль
+            entropy_production → ze_velocity_analog → v*=0.456 (~20 лет)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ -5  КВАРКИ / Ze-ПОЛЕ
-            Прямой биологической релевантности нет.
-            Связь через Ze Vector Theory:
-            CAII ↔ v (Ze-скорость), здоровье ↔ v* = 0.456
-            Старение = отклонение v от v* (потеря сложности).
+            ✅ P24 ZeHealthState: v = v* + 0.544×(1−CAII)
+            v* = 0.456 (критическая точка T/S квантов, Tkemaladze)
+            v_consensus = mean(v, v_entropy) — структура + термодинамика
+            interpretation(): optimal/mild/moderate/severe/near_collapse
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -674,15 +773,23 @@ This is not accidental — neural stem cells have:
 
 ### Что CDATA моделирует vs что нужно добавить
 
-**Уже есть (✅):** кварки/атомы→PTM-коэффициенты, молекулярные PTM×4, митохондрии, центриоли, реснички, ткань×11, организм.
+**Реализовано (✅):**
+- Уровень −5: ZeHealthState (P24) — v = v* + 0.544×(1−CAII)
+- Уровень −4: ThermodynamicState (P22) — Аррениус, 5 Ea, Ze-энтропия
+- Уровень −3: ROSCascadeState (P23) — 4 ОДУ Фентон; AppendageProteinState (P21) — 4 белка + CAII
+- Уровень −2: MicrotubuleState (P25) — DII = cat/(poly+cat) → spindle_fidelity
+- Уровень −1: GolgiState (P26) — фрагментация → CEP164 гликозилирование → распад придатков
+- Уровень 0: клетка (ядро CDATA, ECS, шум, интервенции P11)
+- Уровень +1: TissueState (11 типов), StemCellDivisionRateState (Track F)
+- Уровень +3: OrganismState (frailty, смерть 3 критерия, системный SASP, IGF-1)
 
 **Ближайшие приоритеты (❌→):**
 
 ```
-1. AppendageProteinState: CEP164/CEP89/Ninein/CEP170 — 4 отдельных счётчика
-2. ROSCascadeState: O₂⁻ / H₂O₂ / OH· / Fe²⁺ — 4 молекулярные переменные
-3. OrganState: сердце/почки/печень/лёгкие/мозг — агрегация тканей
-4. ThermodynamicState: T(воспаление) → damage_rate_multiplier = exp(-Eₐ/kT)
+1. GolgiState ✅ P26 — реализован 2026-03-23
+2. Genetic heterogeneity: SNP-профили → разные DamageParams на ниши
+3. OrganState: 11 органов — агрегация тканей → полиорганная недостаточность
+4. LysosomeState: pH, hydrolase_activity — связь с AutophagyState
 5. SocialStressState: stress → cortisol → ROS → CDATA (надклеточный вход)
 ```
 

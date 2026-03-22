@@ -1207,6 +1207,101 @@ impl Default for MicrotubuleState {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GolgiState — ECS-компонент (Уровень -1: органоиды)
+//
+// Моделирует состояние аппарата Гольджи стволовой ниши.
+//
+// Биологические связи:
+//   ROS / SASP → фрагментация Гольджи (cisternae разрушаются)
+//     → снижение гликозилирующей ёмкости
+//     → неполное гликозилирование CEP164
+//     → ускоренная убиквитин-протеасомная деградация CEP164
+//     → потеря придатков (AppendageProteinState.cep164↓)
+//
+//   Везикулярный трафик (COPI/COPII) → антероградный транспорт к цилиям
+//     → снижение traffic_rate при фрагментации → ciliary_function↓
+//
+// Ключевые источники:
+//   - Sundaramoorthy et al. 2016 (CEP164 гликозилирование и Golgi)
+//   - Colanzi & Corda 2007 (Golgi fragmentation и клеточный цикл)
+//   - Gonatas et al. 2006 (Golgi fragmentation при нейродегенерации)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние аппарата Гольджи стволовой ниши (Уровень -1: органоиды).
+///
+/// Связывает органелльный уровень с молекулярным:
+/// фрагментация Гольджи → нарушение гликозилирования CEP164
+/// → ускоренная деградация придатков (AppendageProteinState.cep164↓).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GolgiState {
+    /// Индекс фрагментации Гольджи [0..1].
+    ///
+    /// 0.0 = интактный аппарат (молодая клетка).
+    /// 1.0 = полная фрагментация (тяжёлый стресс/старость).
+    /// Растёт при: ROS, SASP-цитокины (TNF/IL-6), ER-стресс.
+    /// Снижается при: аутофагия, UPR-адаптация.
+    pub fragmentation_index: f32,
+
+    /// Нормированная гликозилирующая ёмкость [0..1].
+    ///
+    /// Производная от fragmentation_index:
+    ///   glycosylation_capacity = (1 − fragmentation × 0.85).clamp(0.1, 1.0)
+    /// При полной фрагментации: минимум 0.1 (остаточная активность ER-гликозилирования).
+    pub glycosylation_capacity: f32,
+
+    /// Гликозилирование CEP164 [0..1].
+    ///
+    /// CEP164 требует N-гликозилирования для стабильного фолдинга и рекрутирования
+    /// к дистальным придаткам (Sundaramoorthy et al. 2016).
+    /// При низком значении: ускоренная убиквитин-зависимая деградация.
+    /// cep164_glycosylation = glycosylation_capacity × 0.95 (предпочтительный субстрат).
+    pub cep164_glycosylation: f32,
+
+    /// Скорость везикулярного трафика (COPI/COPII) к цилиям [0..1].
+    ///
+    /// Антероградный транспорт карго (IFT-компоненты, CEP164 precursor,
+    /// INPP5E → фосфоинозитидный сигналинг реснички).
+    /// traffic_rate = glycosylation_capacity × 0.90.
+    pub vesicle_trafficking_rate: f32,
+}
+
+impl GolgiState {
+    /// Молодое физиологическое состояние Гольджи.
+    pub fn pristine() -> Self {
+        Self {
+            fragmentation_index:    0.05, // небольшая фоновая фрагментация
+            glycosylation_capacity: 0.96, // (1 - 0.05×0.85) = 0.957 ≈ 0.96
+            cep164_glycosylation:   0.91, // 0.96 × 0.95
+            vesicle_trafficking_rate: 0.86, // 0.96 × 0.90
+        }
+    }
+
+    /// Пересчитать производные метрики из fragmentation_index.
+    pub fn update_derived(&mut self) {
+        self.glycosylation_capacity =
+            (1.0 - self.fragmentation_index * 0.85).clamp(0.10, 1.0);
+        self.cep164_glycosylation =
+            (self.glycosylation_capacity * 0.95).clamp(0.0, 1.0);
+        self.vesicle_trafficking_rate =
+            (self.glycosylation_capacity * 0.90).clamp(0.0, 1.0);
+    }
+
+    /// Дополнительная скорость потери CEP164 из-за гипогликозилирования [/год].
+    ///
+    /// Нормальный CEP164 (glycosylation=1.0): extra_loss=0.
+    /// При glycosylation=0.5: extra_loss = 0.5 × sensitivity.
+    pub fn cep164_extra_loss_rate(&self, sensitivity: f32) -> f32 {
+        (1.0 - self.cep164_glycosylation) * sensitivity
+    }
+}
+
+impl Default for GolgiState {
+    fn default() -> Self {
+        Self::pristine()
+    }
+}
+
 /// Тип ткани для специфики стволовых ниш.
 ///
 /// Объединяет биологические ниши (`Neural`, `Muscle`, …) и
