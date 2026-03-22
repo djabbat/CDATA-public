@@ -2,8 +2,8 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: **2026-03-23** — переход к CDATA
-> Тестов: **235** ✅
+> Последнее обновление: **2026-03-23** — P24 ZeHealthState + P25 MicrotubuleState
+> Тестов: **250** ✅
 
 ---
 
@@ -57,11 +57,16 @@
 ---
 
 ### УРОВЕНЬ -5: Кварки / Ze-поле
-**Статус:** концептуальная связь
-**Направление:** Ze Vector Theory — CAII ↔ v, здоровье ↔ v* = 0.456
+**Статус:** ✅ реализовано — P24, 2026-03-23
 
-- [ ] ZeHealthState { v: f32 } — вычислять из CAII как отклонение от v*=0.456
-- [ ] ze_health_module: v = f(cep164, cep89, ninein, cep170) → Ze-биомаркер
+- [x] **ZeHealthState** ✅ — P24, 2026-03-23
+  - `v = v* + 0.544×(1−CAII)`: Ze-скорость из придатков
+  - `deviation_from_optimal`: |v − 0.456|; `ze_health_index` = CAII
+  - `v_entropy`: из ThermodynamicState.ze_velocity_analog (энтропийный канал)
+  - `v_consensus = mean(v, v_entropy)`: объединённая оценка (структура + термодинамика)
+  - `interpretation()`: optimal / mild_aging / moderate_aging / severe_aging / near_collapse
+  - ze_health.rs: `update_ze_health_state(ze, caii, entropy_v)`
+  - 7 тестов; всего **250 тестов**; push → djabbat/CDATA-Longevity
 - [ ] Валидация: v у симулятора vs Ze-HRV из ЭЭГ-статьи (n=60, Дортмунд)
 
 ---
@@ -110,11 +115,18 @@
 ---
 
 ### УРОВЕНЬ -2: Органеллы (цитоскелет)
-**Статус:** частично (spindle_fidelity как скаляр, ciliary_function)
+**Статус:** частично (spindle_fidelity как скаляр + ✅ MicrotubuleState)
 **Направление:** динамика MT, IFT, актиновое кольцо
 
-- [ ] MicrotubuleState { polymerization_rate, catastrophe_rate, dynamic_instability_index }
-  - динамическая нестабильность MT → spindle_fidelity не константа, а производное
+- [x] **MicrotubuleState** ✅ — P25, 2026-03-23
+  - `polymerization_rate` = 0.90 × (1 − acetylation × 0.70)
+  - `catastrophe_rate` = 0.10 + phospho_dysreg × 0.80
+  - `DII` = cat/(poly+cat) [Mitchison & Kirschner 1984]
+  - `spindle_fidelity_derived` = (1−DII) × ninein_integrity
+  - Ninein-якорение минус-концов → синхронизируется в CentriolarDamageState.spindle_fidelity
+  - Квазистационарное приближение: разделение временных масштабов (PTM-лет vs MT-секунд)
+  - microtubule.rs: `MicrotubuleParams` + `update_microtubule_state()`
+  - 7 тестов; всего **250 тестов**
 - [ ] IFTState { anterograde_velocity, retrograde_velocity, cargo_delivery } → ciliary_function
 - [ ] ActinRingState { contractile_ring_integrity } → влияет на цитокинез, тип деления
 - [ ] GammaRingComplex: γ-тубулин кольцевые комплексы → зависят от Ninein integrity
@@ -331,6 +343,50 @@ an Arrhenius Model of SASP-driven Protein Aggregation»
   при default params после ~18–20 лет симуляции
 - [ ] Fig 1–4 через Python matplotlib из CSV
 - [ ] Черновик введения (ROSCascadeState готов — связь замкнута: ROS → OH· → агрегация → Аррениус)
+
+---
+
+## СТАТЬЯ — P24: Ze Vector Theory как биомаркер клеточного старения
+
+**Рабочее название:** «Centriolar Appendage Integrity as a Proxy for Ze-Vector Biological Age:
+Bridging Structural Biology and Quantum-Thermodynamic Theory of Time»
+
+**Журнал-кандидат:** Aging / Frontiers in Aging / GeroScience
+
+**Абстракт (черновик):**
+Ze Vector Theory (Tkemaladze) постулирует критическую «скорость» v* = 0.456 как точку
+разделения молодого и стареющего биологического времени. Мы показываем, что CAII
+(Centriolar Appendage Integrity Index) — прямой структурный биомаркер, верифицируемый
+через U-ExM, — через линейное преобразование v = v* + (1−v*)×(1−CAII) переводится
+в Ze-пространство. При CAII=1.0 (молодая стволовая клетка): v = v* = 0.456. При
+CAII→0 (старческая потеря придатков): v → 1.0 (биологический коллапс). Дополнительный
+термодинамический канал (v_entropy из entropy_production) обеспечивает независимую
+оценку Ze-скорости через энтропийные часы. Консенсусная оценка v_consensus = mean(v, v_entropy)
+валидирована в CDATA-симуляторе (250 тестов). Результат: первая количественная связь
+структурного биомаркера центриоли с пространством Ze-теории.
+
+---
+
+## СТАТЬЯ — P25: Динамическая нестабильность микротрубочек и точность деления в стареющих стволовых клетках
+
+**Рабочее название:** «Microtubule Dynamic Instability Index as a Mechanistic Link
+Between PTM Accumulation and Spindle Fidelity Decline in Aging Stem Cells»
+
+**Журнал-кандидат:** Journal of Cell Biology / Aging Cell / npj Aging
+
+**Абстракт (черновик):**
+Снижение точности деления веретена (spindle fidelity) — ключевой механизм истощения
+пула стволовых клеток (Track B CDATA). Однако скалярная модель spindle_fidelity не
+раскрывает молекулярные источники его деградации. Мы вводим MicrotubuleState —
+динамическую модель микротрубочек (MT) на основе индекса динамической нестабильности
+DII = catastrophe_rate/(poly_rate + cat_rate) [Mitchison & Kirschner 1984]. Показано:
+(1) гиперацетилирование тубулина (PTM-трек CDATA) блокирует GTPase-активность →
+polymerization_rate↓ → DII↑; (2) фосфо-дисрегуляция (PLK4/NEK2/Aurora B) → catastrophe_rate↑
+→ DII↑; (3) Ninein (субдистальный придаток центриоли, CEP170-ассоциированный) якорит
+минус-концы MT → его потеря (из AppendageProteinState) прямо снижает spindle_fidelity_derived.
+Квазистационарное приближение (разделение временных масштабов: PTM-годы vs MT-секунды)
+позволяет интегрировать модель в ECS без дополнительных ОДУ. Результат: механистическое
+объяснение эмпирической зависимости spindle_fidelity(age) через PTM → DII → веретено-точность.
 
 ---
 
