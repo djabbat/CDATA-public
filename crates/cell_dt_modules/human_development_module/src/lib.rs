@@ -41,6 +41,7 @@ use cell_dt_core::{
         GeneExpressionState,
         StemCellDivisionRateState,
         HormonalFertilityState,
+        ThermodynamicState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,7 @@ pub mod damage;
 pub mod development;
 pub mod interventions;
 pub mod hormonal_fertility;
+pub mod thermodynamics;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -68,6 +70,7 @@ pub use aging::{AgingPhenotype, CentrioleAgingLink};
 pub use damage::{DamageParams, accumulate_damage, accumulate_appendage_damage, apply_appendage_protein_repair};
 pub use development::{division_rate_per_year, base_ros_level, stage_for_age};
 pub use interventions::{Intervention, InterventionKind, InterventionEffect};
+pub use thermodynamics::{ThermodynamicParams, update_thermodynamic_state, arrhenius_multiplier};
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)
@@ -249,6 +252,9 @@ pub struct HumanDevelopmentModule {
     systemic_sasp_prev: f32,
     /// P13: агрегированные морфогенные поля по всем нишам (обновляются каждый шаг).
     morphogen_aggregates: MorphogenAggregates,
+    /// P22: параметры термодинамики — общие для всего модуля.
+    /// Применяются при наличии ThermodynamicState у сущности.
+    thermodynamic_params: thermodynamics::ThermodynamicParams,
 }
 
 /// Агрегированные морфогенные поля по всем живым нишам.
@@ -275,6 +281,7 @@ impl HumanDevelopmentModule {
             death_cause: None,
             systemic_sasp_prev: 0.0,
             morphogen_aggregates: MorphogenAggregates::default(),
+            thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
         }
     }
 
@@ -291,7 +298,13 @@ impl HumanDevelopmentModule {
             death_cause: None,
             systemic_sasp_prev: 0.0,
             morphogen_aggregates: MorphogenAggregates::default(),
+            thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
         }
+    }
+
+    /// P22: Задать параметры термодинамики (Аррениус, базовая температура).
+    pub fn set_thermodynamic_params(&mut self, params: thermodynamics::ThermodynamicParams) {
+        self.thermodynamic_params = params;
     }
 
     /// P11: Добавить терапевтическую интервенцию в расписание.
@@ -858,9 +871,10 @@ impl SimulationModule for HumanDevelopmentModule {
             Option<&mut ModulationState>,
             Option<&MitochondrialState>,
             Option<&mut cell_dt_core::components::AppendageProteinState>,
+            Option<&mut ThermodynamicState>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt)) in query.iter() {
+        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt)) in query.iter() {
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -944,11 +958,20 @@ impl SimulationModule for HumanDevelopmentModule {
                     0.0
                 };
 
+                // P22: Термодинамический множитель Аррениуса.
+                // Если ThermodynamicState присутствует и enable_arrhenius=true:
+                // effective_dt_years = dt_years × damage_rate_multiplier.
+                // Лаг 1 шаг (thermo обновляется в конце этого шага) — допустим,
+                // аналогично inflammaging-обратной связи.
+                let thermo_mult = thermo_opt.as_ref()
+                    .map_or(1.0, |t| t.damage_rate_multiplier);
+                let dt_thermo = dt_years * thermo_mult;
+
                 accumulate_damage(
                     &mut comp.centriolar_damage,
                     &iv_effect.damage_params,  // P11: эффективные параметры (с интервенциями)
                     age_years,
-                    dt_years,
+                    dt_thermo,  // P22: термодинамически скорректированный dt
                     infl_ros_boost + epi_ros_from_prev + mito_ros_boost + compensatory_ros_boost,
                 );
 
@@ -1042,6 +1065,21 @@ impl SimulationModule for HumanDevelopmentModule {
                     dam.ninein_integrity = appendage.ninein;
                     dam.cep170_integrity = appendage.cep170;
                     dam.update_functional_metrics();
+                }
+
+                // 3д. P22: ThermodynamicState — обновление термодинамики.
+                // Вычисляет local_temp (baseline + SASP) → damage_rate_multiplier (Аррениус)
+                // → entropy_production → ze_velocity_analog.
+                // Mult применяется на СЛЕДУЮЩЕМ шаге (лаг 1, аналогично inflammaging).
+                // Без ThermodynamicState: mult=1.0 всегда (обратная совместимость).
+                if let Some(ref mut thermo) = thermo_opt {
+                    thermodynamics::update_thermodynamic_state(
+                        thermo,
+                        &comp.centriolar_damage,
+                        infl_sasp,
+                        &self.thermodynamic_params,
+                        dt_years,
+                    );
                 }
 
                 // Проверка на биологически нереалистичные значения
