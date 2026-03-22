@@ -42,6 +42,27 @@ pub struct DamageParams {
     /// снижение локального ROS → восстановление белков центриолярных придатков.
     pub appendage_repair_mitophagy_coupling: f32,
 
+    // --- Чувствительность придатков к OH· (AppendageProteinState, P21) ---
+    //
+    // OH· (гидроксил-радикал) образуется через Fenton: Fe²⁺ + H₂O₂ → OH·.
+    // Относительная чувствительность определяется доступностью Met/Cys-остатков
+    // и локализацией белка в дистальном vs субдистальном аппендаже.
+    //
+    // Источник: Stadtman & Levine (2003) Ann. NY Acad. Sci. 1012:17-24
+    // (карбонилирование коiled-coil-доменов OH·).
+
+    /// Чувствительность CEP164 к OH· [безразмерный]. Дефолт: 1.50.
+    /// Объяснение: длинный coiled-coil + Met228/Cys-домен → первичная мишень OH·.
+    pub cep164_oh_sensitivity: f32,
+    /// Чувствительность CEP89 к OH·. Дефолт: 1.00.
+    pub cep89_oh_sensitivity: f32,
+    /// Чувствительность Ninein к OH·. Дефолт: 0.75.
+    /// Объяснение: субдистальная локализация → меньше доступ к Fenton-ROS.
+    pub ninein_oh_sensitivity: f32,
+    /// Чувствительность CEP170 к OH·. Дефолт: 0.55.
+    /// Объяснение: наиболее защищён; Met-бедный N-конец.
+    pub cep170_oh_sensitivity: f32,
+
     // --- Параметры петли обратной связи ---
 
     /// Коэффициент: повреждение центриоли → рост ROS
@@ -118,6 +139,13 @@ impl Default for DamageParams {
             ninein_repair_rate:                  0.0,
             cep170_repair_rate:                  0.0,
             appendage_repair_mitophagy_coupling: 0.0,
+
+            // OH·-чувствительность (P21): калибровка по относительной скорости окисления
+            // coiled-coil-доменов; CEP164 = эталон 1.50 (наибольшая Met/Cys-плотность).
+            cep164_oh_sensitivity: 1.50,
+            cep89_oh_sensitivity:  1.00,
+            ninein_oh_sensitivity: 0.75,
+            cep170_oh_sensitivity: 0.55,
 
             ros_feedback_coefficient:   0.12,
             sasp_onset_age:             45.0,
@@ -312,13 +340,102 @@ pub fn apply_appendage_repair(
 }
 
 // ---------------------------------------------------------------------------
+// P21: AppendageProteinState — независимая кинетика белков придатков
+// ---------------------------------------------------------------------------
+
+/// Обновить `AppendageProteinState` за один шаг (P21).
+///
+/// Каждый белок теряет целостность пропорционально:
+///   1. Базовой скорости потери (из `DamageParams::cepXXX_loss_rate`).
+///   2. Уровню OH· (гидроксил-радикал): `oh_level = ros_level²`
+///      (квадратичная связь: высокий H₂O₂ → Fenton → OH·).
+///   3. Чувствительности белка к OH· (`cepXXX_oh_sensitivity`).
+///   4. Возрастному множителю (общий `effective_dt`).
+///
+/// После обновления пересчитывается CAII.
+///
+/// # Синхронизация
+/// Вызывать ПОСЛЕ `accumulate_damage()`. После вызова синхронизировать
+/// `CentriolarDamageState.cepXXX_integrity` из `AppendageProteinState.cepXXX`
+/// и вызвать `damage.update_functional_metrics()`.
+///
+/// # Параметры
+/// * `oh_level` — текущий уровень OH· [0..1].
+///   Рекомендуемое вычисление: `ros_level.powi(2)` (Fenton-зависимость).
+///   При отсутствии данных — передать `damage.ros_level.powi(2)`.
+pub fn accumulate_appendage_damage(
+    appendage: &mut cell_dt_core::components::AppendageProteinState,
+    params: &DamageParams,
+    oh_level: f32,
+    age_years: f32,
+    dt_years: f32,
+) {
+    let age_mult = params.age_multiplier(age_years);
+    let effective_dt = dt_years * age_mult;
+
+    // Потеря = базовая + OH·-компонент (независимая чувствительность к Fenton)
+    appendage.cep164 = (appendage.cep164
+        - (params.cep164_loss_rate
+            + oh_level * params.cep164_oh_sensitivity * params.base_ros_damage_rate)
+            * effective_dt
+    ).max(0.0);
+
+    appendage.cep89 = (appendage.cep89
+        - (params.cep89_loss_rate
+            + oh_level * params.cep89_oh_sensitivity * params.base_ros_damage_rate)
+            * effective_dt
+    ).max(0.0);
+
+    appendage.ninein = (appendage.ninein
+        - (params.ninein_loss_rate
+            + oh_level * params.ninein_oh_sensitivity * params.base_ros_damage_rate)
+            * effective_dt
+    ).max(0.0);
+
+    appendage.cep170 = (appendage.cep170
+        - (params.cep170_loss_rate
+            + oh_level * params.cep170_oh_sensitivity * params.base_ros_damage_rate)
+            * effective_dt
+    ).max(0.0);
+
+    appendage.update_caii();
+}
+
+/// Применить репарацию к `AppendageProteinState` (P21).
+///
+/// Аналог `apply_appendage_repair`, но оперирует на отдельном компоненте.
+/// При `params.cep164_repair_rate == 0.0` — no-op.
+pub fn apply_appendage_protein_repair(
+    appendage: &mut cell_dt_core::components::AppendageProteinState,
+    params: &DamageParams,
+    mitophagy_flux: f32,
+    dt_years: f32,
+) {
+    if params.cep164_repair_rate + params.cep89_repair_rate
+        + params.ninein_repair_rate + params.cep170_repair_rate == 0.0
+    {
+        return;
+    }
+
+    let mito_factor = 1.0 + params.appendage_repair_mitophagy_coupling * mitophagy_flux;
+    let repair_dt = dt_years * mito_factor;
+
+    appendage.cep164 = (appendage.cep164 + params.cep164_repair_rate * repair_dt).min(1.0);
+    appendage.cep89  = (appendage.cep89  + params.cep89_repair_rate  * repair_dt).min(1.0);
+    appendage.ninein = (appendage.ninein + params.ninein_repair_rate  * repair_dt).min(1.0);
+    appendage.cep170 = (appendage.cep170 + params.cep170_repair_rate * repair_dt).min(1.0);
+
+    appendage.update_caii();
+}
+
+// ---------------------------------------------------------------------------
 // Тесты
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cell_dt_core::components::CentriolarDamageState;
+    use cell_dt_core::components::{AppendageProteinState, CentriolarDamageState};
 
     const DT: f32 = 1.0 / 365.25; // один день
 
@@ -457,5 +574,96 @@ mod tests {
         assert!(d_anti.protein_carbonylation < d_normal.protein_carbonylation,
             "antioxidant: меньше карбонилирования: anti={:.3}, normal={:.3}",
             d_anti.protein_carbonylation, d_normal.protein_carbonylation);
+    }
+
+    // ── P21: AppendageProteinState ────────────────────────────────────────────
+
+    /// CAII pristine = 1.0
+    #[test]
+    fn test_appendage_pristine_caii_is_one() {
+        let a = AppendageProteinState::pristine();
+        assert!((a.caii - 1.0).abs() < 1e-6, "pristine CAII={:.6}", a.caii);
+    }
+
+    /// CEP164 теряет целостность быстрее других при высоком OH·
+    /// (чувствительность 1.50 vs 0.55 у CEP170).
+    #[test]
+    fn test_cep164_more_sensitive_to_oh_radical() {
+        let params = DamageParams::default();
+        let mut a = AppendageProteinState::pristine();
+        // Высокий OH· (ros_level=0.9 → oh_level=0.81)
+        let oh_high = 0.81_f32;
+        let dt = 1.0 / 365.25_f32;
+
+        for _ in 0..365 {
+            accumulate_appendage_damage(&mut a, &params, oh_high, 50.0, dt);
+        }
+
+        assert!(a.cep164 < a.cep170,
+            "CEP164 должен потерять больше при высоком OH·: cep164={:.3}, cep170={:.3}",
+            a.cep164, a.cep170);
+    }
+
+    /// При OH·=0 порядок потери определяется только базовыми скоростями.
+    /// cep164_loss_rate=0.0113 > cep89=ninein=0.0084 > cep170=0.0067.
+    #[test]
+    fn test_appendage_loss_order_without_oh() {
+        let params = DamageParams::default();
+        let mut a = AppendageProteinState::pristine();
+        let dt = 1.0 / 365.25_f32;
+
+        for _ in 0..(30 * 365) {
+            accumulate_appendage_damage(&mut a, &params, 0.0, 30.0, dt);
+        }
+
+        // CEP164 теряет больше всех (0.0113/yr)
+        assert!(a.cep164 < a.cep89,   "cep164 < cep89 за 30 лет: {:.3} vs {:.3}", a.cep164, a.cep89);
+        // CEP89 = Ninein по скорости (одинаковые 0.0084/yr) → близкие значения
+        let diff = (a.cep89 - a.ninein).abs();
+        assert!(diff < 1e-4, "cep89 и ninein должны быть равны (одинаковая loss_rate): diff={:.6}", diff);
+        // Ninein теряет больше, чем CEP170 (0.0084 vs 0.0067)
+        assert!(a.ninein < a.cep170,  "ninein < cep170 за 30 лет: {:.3} vs {:.3}", a.ninein, a.cep170);
+    }
+
+    /// CAII = взвешенное геометрическое среднее; при частичной потере CEP164
+    /// CAII снижается сильнее, чем при потере CEP170 (вес 0.40 vs 0.15).
+    #[test]
+    fn test_caii_cep164_weighted_more_than_cep170() {
+        let mut a_cep164 = AppendageProteinState::pristine();
+        a_cep164.cep164 = 0.5;
+        a_cep164.update_caii();
+
+        let mut a_cep170 = AppendageProteinState::pristine();
+        a_cep170.cep170 = 0.5;
+        a_cep170.update_caii();
+
+        assert!(a_cep164.caii < a_cep170.caii,
+            "CAII при CEP164=0.5 ({:.3}) должен быть ниже, чем при CEP170=0.5 ({:.3})",
+            a_cep164.caii, a_cep170.caii);
+    }
+
+    /// Репарация восстанавливает целостность при включённом antioxidant-пресете.
+    #[test]
+    fn test_appendage_repair_restores_integrity() {
+        let params = DamageParams::antioxidant();
+        let mut a = AppendageProteinState::pristine();
+        // Симулировать предварительное повреждение
+        a.cep164 = 0.6;
+        a.cep89  = 0.7;
+        a.ninein = 0.75;
+        a.cep170 = 0.8;
+        a.update_caii();
+        let caii_before = a.caii;
+
+        // Применить репарацию за 1 год
+        let dt = 1.0 / 365.25_f32;
+        for _ in 0..365 {
+            apply_appendage_protein_repair(&mut a, &params, 0.5, dt);
+        }
+
+        assert!(a.caii > caii_before,
+            "CAII должен вырасти после репарации: before={:.3}, after={:.3}",
+            caii_before, a.caii);
+        assert!(a.cep164 > 0.6, "CEP164 должен восстановиться: {:.3}", a.cep164);
     }
 }

@@ -65,7 +65,7 @@ pub use inducers::{
 };
 pub use tissues::*;
 pub use aging::{AgingPhenotype, CentrioleAgingLink};
-pub use damage::{DamageParams, accumulate_damage};
+pub use damage::{DamageParams, accumulate_damage, accumulate_appendage_damage, apply_appendage_protein_repair};
 pub use development::{division_rate_per_year, base_ros_level, stage_for_age};
 pub use interventions::{Intervention, InterventionKind, InterventionEffect};
 
@@ -857,9 +857,10 @@ impl SimulationModule for HumanDevelopmentModule {
             Option<&mut DifferentiationStatus>,
             Option<&mut ModulationState>,
             Option<&MitochondrialState>,
+            Option<&mut cell_dt_core::components::AppendageProteinState>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt)) in query.iter() {
+        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt)) in query.iter() {
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -1006,6 +1007,41 @@ impl SimulationModule for HumanDevelopmentModule {
                         effective_mitophagy,
                         dt_years,
                     );
+                }
+
+                // 3г. P21: AppendageProteinState — независимая кинетика белков придатков.
+                // OH· = ros_level² (Fenton-зависимость H₂O₂ → OH·).
+                // После обновления синхронизируем cepXXX_integrity обратно в
+                // CentriolarDamageState, чтобы все downstream-расчёты (spindle_fidelity,
+                // ciliary_function, CAII как клинический биомаркер) использовали
+                // актуальные значения от независимого компонента.
+                if let Some(ref mut appendage) = appendage_opt {
+                    let oh_level = comp.centriolar_damage.ros_level.powi(2);
+                    let base_mitophagy = mito_opt.map_or(0.0, |m| m.mitophagy_flux);
+                    let effective_mitophagy = (base_mitophagy + iv_effect.extra_mitophagy).min(1.0);
+                    let age_years = comp.age_years() as f32;
+
+                    damage::accumulate_appendage_damage(
+                        appendage,
+                        &iv_effect.damage_params,
+                        oh_level,
+                        age_years,
+                        dt_years,
+                    );
+                    damage::apply_appendage_protein_repair(
+                        appendage,
+                        &iv_effect.damage_params,
+                        effective_mitophagy,
+                        dt_years,
+                    );
+
+                    // Синхронизация → CentriolarDamageState
+                    let dam = &mut comp.centriolar_damage;
+                    dam.cep164_integrity = appendage.cep164;
+                    dam.cep89_integrity  = appendage.cep89;
+                    dam.ninein_integrity = appendage.ninein;
+                    dam.cep170_integrity = appendage.cep170;
+                    dam.update_functional_metrics();
                 }
 
                 // Проверка на биологически нереалистичные значения
