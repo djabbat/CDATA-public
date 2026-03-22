@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CDATA Digital Twin — Centriolar Damage Accumulation Theory</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06090f;--bg2:#0b1220;--bg3:#101928;--bg4:#141f2e;
+  --acc:#00c6ff;--acc2:#6c4fff;--acc3:#ff5c3a;--green:#2ee89a;
+  --text:#c6d8ea;--dim:#5a7a90;--border:rgba(0,198,255,.13);
+  --glow:0 0 28px rgba(0,198,255,.22);
+}
+html{scroll-behavior:smooth}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.68;overflow-x:hidden}
+h1,h2,h3,h4{font-weight:800;letter-spacing:-.02em}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:'Cascadia Code','Fira Code',monospace;font-size:.85em;
+     background:rgba(0,198,255,.07);padding:1px 5px;border-radius:4px;color:#7bffe0}
+
+/* ── scrollbar ── */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:rgba(0,198,255,.2);border-radius:3px}
+
+/* ══ NAV ══════════════════════════════════════════════════════ */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 48px;
+  background:rgba(6,9,15,.88);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);
+}
+.logo{font-size:1.05rem;font-weight:900;letter-spacing:.08em;color:var(--acc);
+      text-shadow:0 0 20px rgba(0,198,255,.45)}
+.logo em{color:var(--text);font-style:normal;font-weight:500}
+nav ul{list-style:none;display:flex;gap:28px}
+nav ul a{font-size:.82rem;color:var(--dim);font-weight:500;letter-spacing:.04em;transition:color .18s}
+nav ul a:hover{color:var(--acc);text-decoration:none}
+
+/* ══ HERO ══════════════════════════════════════════════════════ */
+#hero{
+  min-height:100vh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;
+  padding:120px 24px 80px;position:relative;overflow:hidden;
+}
+canvas#bg{position:absolute;inset:0;z-index:0;pointer-events:none}
+.hero-inner{position:relative;z-index:1;max-width:900px}
+.chip{
+  display:inline-block;font-size:.68rem;font-weight:700;letter-spacing:.14em;
+  color:var(--acc);background:rgba(0,198,255,.08);
+  border:1px solid rgba(0,198,255,.24);padding:5px 14px;border-radius:20px;margin-bottom:26px;
+}
+h1.title{
+  font-size:clamp(2.6rem,6.5vw,5rem);font-weight:900;line-height:1.06;
+  background:linear-gradient(130deg,#fff 25%,var(--acc) 75%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  margin-bottom:22px;
+}
+.subtitle{
+  font-size:clamp(.95rem,2vw,1.2rem);color:var(--dim);max-width:700px;
+  margin:0 auto 44px;line-height:1.8;
+}
+.btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.btn{
+  padding:12px 28px;border-radius:8px;font-size:.9rem;font-weight:600;
+  cursor:pointer;border:none;transition:all .2s;text-decoration:none;
+}
+.btn-p{background:var(--acc);color:#06090f;box-shadow:0 0 26px rgba(0,198,255,.3)}
+.btn-p:hover{background:#22daff;box-shadow:0 0 38px rgba(0,198,255,.5);color:#06090f;text-decoration:none}
+.btn-o{background:transparent;color:var(--acc);border:1.5px solid rgba(0,198,255,.32)}
+.btn-o:hover{border-color:var(--acc);background:rgba(0,198,255,.05);text-decoration:none}
+
+.kpis{
+  display:flex;gap:44px;justify-content:center;flex-wrap:wrap;
+  margin-top:60px;position:relative;z-index:1;
+}
+.kpi-val{font-size:2.2rem;font-weight:900;color:var(--acc);
+          text-shadow:0 0 18px rgba(0,198,255,.35);line-height:1}
+.kpi-lbl{font-size:.7rem;color:var(--dim);letter-spacing:.1em;margin-top:5px;text-transform:uppercase}
+
+/* ══ SECTION SKELETON ══════════════════════════════════════════ */
+section{padding:90px 24px}
+.wrap{max-width:1100px;margin:0 auto}
+.stag{font-size:.68rem;font-weight:700;letter-spacing:.15em;
+      color:var(--acc);text-transform:uppercase;margin-bottom:10px}
+.sh{font-size:clamp(1.7rem,3.2vw,2.6rem);margin-bottom:18px;line-height:1.15}
+.sl{font-size:1rem;color:var(--dim);max-width:680px;margin-bottom:50px;line-height:1.8}
+.alt{background:var(--bg2)}
+.alt2{background:var(--bg3)}
+
+/* ══ THEORY ════════════════════════════════════════════════════ */
+.theory-body{
+  display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start;
+}
+@media(max-width:720px){.theory-body{grid-template-columns:1fr}}
+.theory-text p{
+  font-size:.9rem;color:var(--dim);line-height:1.85;margin-bottom:16px;
+}
+.theory-text p strong{color:var(--text)}
+.theory-text a{color:var(--acc);border-bottom:1px dashed rgba(0,198,255,.35)}
+.theory-text a:hover{text-decoration:none;border-bottom-style:solid}
+
+/* Cascade */
+.cascade{display:flex;flex-direction:column;gap:0}
+.cs{
+  display:flex;gap:16px;align-items:flex-start;padding:18px 20px;
+  background:var(--bg4);border:1px solid var(--border);border-radius:10px;
+  margin-bottom:4px;transition:box-shadow .2s;
+}
+.cs:hover{box-shadow:var(--glow)}
+.cs-icon{font-size:1.6rem;flex-shrink:0;width:38px;text-align:center;padding-top:2px}
+.cs-title{font-size:.88rem;font-weight:700;color:var(--acc);margin-bottom:4px}
+.cs-desc{font-size:.78rem;color:var(--dim);line-height:1.6}
+.cs-arr{
+  text-align:center;font-size:1rem;color:rgba(0,198,255,.3);
+  padding:2px 0;line-height:1;
+}
+
+/* ══ TRACKS ════════════════════════════════════════════════════ */
+.tracks{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}
+.tr{
+  background:var(--bg4);border:1px solid var(--border);border-radius:12px;
+  padding:24px 18px;position:relative;overflow:hidden;transition:transform .2s,box-shadow .2s;
+}
+.tr:hover{transform:translateY(-4px);box-shadow:var(--glow)}
+.tr::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.tr-a::before{background:linear-gradient(90deg,#00c6ff,#0055ff)}
+.tr-b::before{background:linear-gradient(90deg,#6c4fff,#c040ff)}
+.tr-c::before{background:linear-gradient(90deg,#ff5c3a,#ffab40)}
+.tr-d::before{background:linear-gradient(90deg,#2ee89a,#00d4c0)}
+.tr-e::before{background:linear-gradient(90deg,#ffd04a,#ff7840)}
+.tr-f::before{background:linear-gradient(90deg,#2ee89a,#00aaff)}
+.tr-id{font-size:.65rem;font-weight:800;letter-spacing:.14em;color:var(--dim);margin-bottom:8px}
+.tr-name{font-size:1rem;font-weight:700;margin-bottom:10px;line-height:1.25}
+.tr-code{
+  font-family:'Cascadia Code','Fira Code',monospace;font-size:.74rem;
+  color:var(--green);background:rgba(46,232,154,.05);
+  border-left:2px solid rgba(46,232,154,.3);
+  padding:7px 10px;margin-bottom:12px;border-radius:0 4px 4px 0;line-height:1.5;
+}
+.tr-desc{font-size:.78rem;color:var(--dim);line-height:1.6}
+
+/* ══ MECHANISMS ════════════════════════════════════════════════ */
+.mechs{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.mech{
+  background:var(--bg);border:1px solid var(--border);border-radius:10px;
+  padding:20px 18px;display:flex;gap:14px;
+  transition:border-color .2s;
+}
+.mech:hover{border-color:rgba(0,198,255,.32)}
+.pid{
+  font-size:.68rem;font-weight:800;letter-spacing:.05em;
+  color:var(--acc);background:rgba(0,198,255,.09);
+  border:1px solid rgba(0,198,255,.18);padding:3px 8px;border-radius:5px;
+  flex-shrink:0;white-space:nowrap;height:fit-content;
+}
+.mt{font-size:.9rem;font-weight:700;margin-bottom:6px}
+.md{font-size:.78rem;color:var(--dim);line-height:1.65}
+.mf{
+  font-family:'Cascadia Code','Fira Code',monospace;font-size:.7rem;
+  color:#7bffe0;background:rgba(0,255,160,.05);
+  border-left:2px solid rgba(0,255,160,.25);
+  padding:5px 9px;margin-top:8px;border-radius:0 4px 4px 0;line-height:1.55;
+}
+
+/* ══ PUBLICATIONS ══════════════════════════════════════════════ */
+.pubs-grid{display:flex;flex-direction:column;gap:10px}
+.pub{
+  display:flex;align-items:flex-start;gap:18px;
+  background:var(--bg4);border:1px solid var(--border);border-radius:10px;
+  padding:16px 20px;transition:border-color .2s,box-shadow .2s;
+}
+.pub:hover{border-color:rgba(0,198,255,.3);box-shadow:0 0 14px rgba(0,198,255,.08)}
+.pub-year{
+  font-size:.75rem;font-weight:800;color:var(--acc);
+  background:rgba(0,198,255,.08);border:1px solid rgba(0,198,255,.18);
+  padding:3px 9px;border-radius:5px;flex-shrink:0;white-space:nowrap;height:fit-content;
+}
+.pub-body{}
+.pub-title{font-size:.9rem;font-weight:700;margin-bottom:5px;line-height:1.35}
+.pub-title a{color:var(--text)}
+.pub-title a:hover{color:var(--acc)}
+.pub-meta{font-size:.76rem;color:var(--dim);margin-bottom:6px;line-height:1.5}
+.pub-tags{display:flex;gap:6px;flex-wrap:wrap}
+.tag{
+  font-size:.65rem;font-weight:700;letter-spacing:.05em;
+  padding:2px 8px;border-radius:12px;
+}
+.tag-core{background:rgba(0,198,255,.1);color:var(--acc)}
+.tag-dt{background:rgba(108,79,255,.12);color:#a07fff}
+.tag-clin{background:rgba(46,232,154,.1);color:#2ee89a}
+.tag-rev{background:rgba(255,92,58,.1);color:#ff7a5a}
+.tag-exp{background:rgba(255,208,74,.1);color:#ffd04a}
+.pub-pdf{
+  margin-left:auto;flex-shrink:0;
+  font-size:.72rem;font-weight:700;color:var(--acc2);
+  background:rgba(108,79,255,.1);border:1px solid rgba(108,79,255,.22);
+  padding:5px 12px;border-radius:6px;white-space:nowrap;align-self:center;
+  transition:background .18s;
+}
+.pub-pdf:hover{background:rgba(108,79,255,.22);text-decoration:none;color:#b89fff}
+
+/* ══ PLATFORM ══════════════════════════════════════════════════ */
+.plat-layout{display:grid;grid-template-columns:1.1fr .9fr;gap:48px;align-items:center}
+@media(max-width:860px){.plat-layout{grid-template-columns:1fr}}
+.code-win{
+  background:#05080e;border:1px solid var(--border);border-radius:12px;overflow:hidden;
+}
+.win-bar{
+  display:flex;align-items:center;gap:7px;padding:9px 15px;
+  background:rgba(0,198,255,.04);border-bottom:1px solid var(--border);
+}
+.dot{width:10px;height:10px;border-radius:50%}
+.dr{background:#ff5f57}.dy{background:#febc2e}.dg{background:#28c840}
+.wf{font-size:.72rem;color:var(--dim);margin-left:6px}
+pre{padding:18px;font-size:.74rem;font-family:'Cascadia Code','Fira Code',monospace;
+    line-height:1.65;overflow-x:auto;color:var(--text)}
+.kw{color:#7b9fff}.ty{color:#7bffe0}.cm{color:#3d5e72;font-style:italic}
+.st{color:#ffb840}.nm{color:#ff9f40}.fn{color:var(--acc)}.op{color:#c880ff}
+
+.feats{display:flex;flex-direction:column;gap:12px}
+.feat{
+  display:flex;gap:13px;align-items:flex-start;
+  background:var(--bg);border:1px solid var(--border);border-radius:9px;
+  padding:14px 16px;transition:border-color .2s;
+}
+.feat:hover{border-color:rgba(0,198,255,.28)}
+.fi{font-size:1.4rem;width:36px;text-align:center;flex-shrink:0}
+.fn2{font-size:.88rem;font-weight:700;margin-bottom:2px}
+.fd{font-size:.76rem;color:var(--dim);line-height:1.55}
+
+/* ══ FADE-UP ════════════════════════════════════════════════════ */
+.fu{opacity:0;transform:translateY(24px);transition:opacity .55s ease,transform .55s ease}
+.fu.in{opacity:1;transform:translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ── NAV ──────────────────────────────────────────────────────── -->
+<nav>
+  <div class="logo">CDATA <em>Digital Twin</em></div>
+  <ul>
+    <li><a href="#theory">Theory</a></li>
+    <li><a href="#tracks">Tracks</a></li>
+    <li><a href="#mechanisms">Mechanisms</a></li>
+    <li><a href="#platform">Platform</a></li>
+    <li><a href="#publications">Publications</a></li>
+  </ul>
+</nav>
+
+<!-- ── HERO ─────────────────────────────────────────────────────── -->
+<section id="hero">
+  <canvas id="bg"></canvas>
+  <div class="hero-inner">
+    <div class="chip">CDATA &mdash; Centriolar Damage Accumulation Theory of Aging</div>
+    <h1 class="title">Cell Aging<br>as a Digital Twin</h1>
+    <p class="subtitle">
+      A high-performance Rust simulation platform built on the CDATA theory
+      by Jaba Tkemaladze — the first quantitative model placing
+      centriolar inductor loss at the causal origin of organismal aging.
+    </p>
+    <div class="btns">
+      <a href="#theory" class="btn btn-p">Read the Theory</a>
+      <a href="#publications" class="btn btn-o">Publications</a>
+    </div>
+  </div>
+  <div class="kpis">
+    <div><div class="kpi-val">198</div><div class="kpi-lbl">Unit Tests</div></div>
+    <div><div class="kpi-val">6</div><div class="kpi-lbl">Aging Tracks</div></div>
+    <div><div class="kpi-val">14</div><div class="kpi-lbl">Rust Crates</div></div>
+    <div><div class="kpi-val">78yr</div><div class="kpi-lbl">Calibrated Lifespan</div></div>
+    <div><div class="kpi-val">8</div><div class="kpi-lbl">Interventions</div></div>
+  </div>
+</section>
+
+<!-- ── THEORY ───────────────────────────────────────────────────── -->
+<section id="theory" class="alt">
+<div class="wrap">
+  <div class="stag">Core Theory</div>
+  <h2 class="sh fu">From Centriole to Senescence</h2>
+  <div class="theory-body">
+    <div class="theory-text fu">
+      <p>
+        The <strong>Centriolar Damage Accumulation Theory of Aging (CDATA)</strong>,
+        developed by Jaba Tkemaladze since
+        <a href="papers/2005_Centriolar_Mechanisms.pdf" target="_blank">2005</a>,
+        proposes that aging is driven by the progressive oxidative modification of
+        <em>inductor complexes</em> attached to centrioles — the only organelles
+        that persist across cell generations without complete turnover.
+      </p>
+      <p>
+        Unlike telomere theory, which requires cell division, CDATA explains aging
+        in both mitotic and post-mitotic tissues. Unlike mitochondrial theory, CDATA
+        places centrioles at the <strong>causal origin</strong> — mitochondrial dysfunction
+        is a downstream consequence of a collapsed centrosomal O₂ shield
+        (<a href="papers/2008_Centrosomal_Hypothesis.pdf" target="_blank">2008</a>).
+      </p>
+      <p>
+        Each centriole carries two distinct sets of inductor complexes: the
+        <strong>M-set</strong> (mother centriole) and the <strong>D-set</strong>
+        (daughter centriole). Reactive oxygen species — primarily mitochondrial superoxide —
+        irreversibly detach inducers when the perinuclear O₂ barrier weakens.
+        Cell potency is a direct function of the residual inductor counts
+        (<a href="papers/2010_Centriole_Differentiation_Senescence.pdf" target="_blank">2010</a>).
+      </p>
+      <p>
+        The mother centriole ages faster due to accumulated post-translational
+        modifications (PTMs) that weaken inductor binding. This asymmetry is the
+        molecular basis for asymmetric stem cell division and clonal dynamics
+        (<a href="papers/2025_Asymmetric_Divisions.pdf" target="_blank">2025</a>,
+        <a href="papers/2026_Centrioles_Asymmetric_Division.pdf" target="_blank">2026</a>).
+      </p>
+      <p>
+        Centrosomal RNA plays a structural role in stabilizing inductor complexes.
+        Its discovery and relevance to the aging cascade are described in
+        <a href="papers/2012_New_Class_RNAs.pdf" target="_blank">2012</a> and
+        <a href="papers/2012_RNA_Centrosomes.pdf" target="_blank">2012 (RNA in centrosomes)</a>.
+      </p>
+      <p>
+        Beyond pool depletion, aging stem cells also divide progressively
+        <em>slower</em> — a sixth, independent pathway of tissue failure.
+        The molecular brakes (CEP164↓, spindle damage, ROS-quiescence, mTOR,
+        PTM accumulation) are quantified in
+        <a href="papers/2024_Division_Rate_Decreases_With_Age.pdf" target="_blank">Tkemaladze 2024</a>
+        and implemented as <strong>Track&nbsp;F</strong> in the Digital Twin.
+      </p>
+    </div>
+
+    <div class="fu">
+      <div class="cascade">
+        <div class="cs">
+          <div class="cs-icon">⚛</div>
+          <div>
+            <div class="cs-title">ROS &amp; O₂ Penetration</div>
+            <div class="cs-desc">Mitochondrial superoxide weakens the perinuclear shield. Damaged mtDNA → increased ROS → shield collapses (Track&nbsp;E).</div>
+          </div>
+        </div>
+        <div class="cs-arr">↓</div>
+        <div class="cs">
+          <div class="cs-icon">🔩</div>
+          <div>
+            <div class="cs-title">Inductor Detachment (M &amp; D)</div>
+            <div class="cs-desc">O₂ reaches centrioles; irreversibly cleaves M and D inductor complexes. Mother centriole loses inducers faster (higher PTM load).</div>
+          </div>
+        </div>
+        <div class="cs-arr">↓</div>
+        <div class="cs">
+          <div class="cs-icon">🧬</div>
+          <div>
+            <div class="cs-title">Potency Cascade</div>
+            <div class="cs-desc">Totipotent → Pluripotent → Oligopotent → Unipotent → Apoptosis. Each step is irreversible. Division transmits current inductor count to daughter cells.</div>
+          </div>
+        </div>
+        <div class="cs-arr">↓</div>
+        <div class="cs">
+          <div class="cs-icon">🦶</div>
+          <div>
+            <div class="cs-title">CEP164 &amp; Cilia Failure</div>
+            <div class="cs-desc">Loss of centriolar appendage protein CEP164 eliminates primary cilia. Shh/Wnt/BMP morphogen reception collapses; niche self-renewal fails (Track&nbsp;A).</div>
+          </div>
+        </div>
+        <div class="cs-arr">↓</div>
+        <div class="cs">
+          <div class="cs-icon">💀</div>
+          <div>
+            <div class="cs-title">Frailty &amp; Death</div>
+            <div class="cs-desc">Stem cell pool exhaustion, myeloid shift, inflammaging, telomere attrition, epigenetic drift, and DDR all converge on organismal frailty.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── TRACKS ───────────────────────────────────────────────────── -->
+<section id="tracks">
+<div class="wrap">
+  <div class="stag">Aging Tracks</div>
+  <h2 class="sh fu">Six Parallel Pathways to Frailty</h2>
+  <p class="sl fu">
+    Centriolar damage fans out into five mechanistically distinct tracks.
+    Each is an independent Rust crate with its own ECS component and test suite,
+    yet all converge on the central <code>CentriolarDamageState</code>.
+  </p>
+  <div class="tracks fu">
+    <div class="tr tr-a">
+      <div class="tr-id">TRACK A</div>
+      <div class="tr-name">Ciliary / Morphogen</div>
+      <div class="tr-code">CEP164↓ → cilia↓ → Shh/Wnt↓<br>→ regeneration_tempo↓</div>
+      <div class="tr-desc">Primary cilia transduce morphogen signals. CEP164 loss collapses ciliation and shuts down niche self-renewal. Hill-function scaling
+        (<a href="papers/2026_CDATA_Digital_Twin.pdf" target="_blank">DT&nbsp;2026</a>).</div>
+    </div>
+    <div class="tr tr-b">
+      <div class="tr-id">TRACK B</div>
+      <div class="tr-name">Spindle / Pool Exhaustion</div>
+      <div class="tr-code">spindle_fidelity↓ → sym.div↑<br>→ stem_cell_pool↓</div>
+      <div class="tr-desc">Spindle misassembly forces symmetric differentiating divisions, depleting the HSC niche.
+        CHIP clonal drift emerges by year 40
+        (<a href="papers/2023_Reduction_Stem_Cells.pdf" target="_blank">2023</a>).</div>
+    </div>
+    <div class="tr tr-c">
+      <div class="tr-id">TRACK C</div>
+      <div class="tr-name">Telomere Attrition</div>
+      <div class="tr-code">Δlen = per_div × div_rate<br>× spindle_f × ros_f</div>
+      <div class="tr-desc">Each division erodes telomeres proportional to spindle fidelity and ROS. Critical shortening triggers permanent G1 arrest via p21 — the Hayflick limit
+        (<a href="papers/2011_Programming_Age_Changes.pdf" target="_blank">2011</a>).</div>
+    </div>
+    <div class="tr tr-d">
+      <div class="tr-id">TRACK D</div>
+      <div class="tr-name">Epigenetic Clock</div>
+      <div class="tr-code">methylation_age +=<br>dt × (1 + damage × 0.5)</div>
+      <div class="tr-desc">Oxidative damage accelerates epigenetic drift. Division-coupled inheritance propagates the Horvath clock state to daughter cells. Calibrated to published epigenome aging data.</div>
+    </div>
+    <div class="tr tr-e">
+      <div class="tr-id">TRACK E</div>
+      <div class="tr-name">Mitochondrial Dysfunction</div>
+      <div class="tr-code">mtDNA↑ → ROS↑ → shield↓<br>→ O₂_at_centrosome↑</div>
+      <div class="tr-desc">The <code>MitochondrialModule</code> models fusion/fission balance, mtDNA mutation accumulation, mitophagy flux, and the mito-shield — the primary O₂ barrier.</div>
+    </div>
+    <div class="tr tr-f">
+      <div class="tr-id">TRACK F</div>
+      <div class="tr-name">Division Rate Decline</div>
+      <div class="tr-code">division_rate = cilia_drive<br>× spindle_drive × age_factor<br>× ros_brake × mtor_brake</div>
+      <div class="tr-desc">
+        Stem cells divide progressively slower with age — independent of pool depletion
+        (Track&nbsp;B). Five molecular brakes act in parallel:
+        <br><br>
+        <strong>1. CEP164↓ → cilia↓ → Wnt/Shh↓ → Cyclin&nbsp;D1↓</strong> — morphogen-driven G1→S push is lost.
+        <br>
+        <strong>2. Spindle damage → p21↑</strong> — G1 phase is prolonged; fewer divisions per unit time.
+        <br>
+        <strong>3. ROS-induced quiescence</strong> — high ROS stabilizes p16/p21, pushing cells into deep G0.
+        <br>
+        <strong>4. mTOR↑ (age-driven)</strong> — redirects resources from proliferation to damage repair.
+        <br>
+        <strong>5. PTM accumulation</strong> — impairs PCM remodeling before mitosis, lengthening G2/M.
+        <br><br>
+        The combined <code>division_rate</code> multiplies <code>regeneration_tempo</code>, so slow-dividing
+        niches fail to replenish tissue even when the stem cell pool is intact.
+        See <a href="papers/2024_Division_Rate_Decreases_With_Age.pdf" target="_blank">Tkemaladze 2024</a>.
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── MECHANISMS ──────────────────────────────────────────────── -->
+<section id="mechanisms" class="alt">
+<div class="wrap">
+  <div class="stag">Molecular Mechanisms</div>
+  <h2 class="sh fu">Eight Additional Layers (P13–P20)</h2>
+  <p class="sl fu">
+    Beyond the core inductor cascade, the platform models eight molecular
+    mechanisms that modulate CDATA progression, each grounded in published biology
+    and fully integrated into the ECS step loop.
+  </p>
+  <div class="mechs fu">
+    <div class="mech">
+      <div class="pid">P13</div>
+      <div>
+        <div class="mt">Morphogen Temporal Fields</div>
+        <div class="md">Stage-dependent GLI/Shh/BMP/Wnt scaling via Hill function. Embryonic stages amplify signaling; elderly stages reduce GLI to 0.5×. References:
+          <a href="papers/2005_Centriolar_Mechanisms.pdf" target="_blank">Tkemaladze 2005</a>.</div>
+        <div class="mf">gli = cilia^n / (K^n + cilia^n) × stage_scale</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P14</div>
+      <div>
+        <div class="mt">Epigenetic Inheritance</div>
+        <div class="md">Division-coupled methylation age propagation. Each division averages parent clock and chronological age — modeling Horvath clock inheritance in daughter cells.</div>
+        <div class="mf">meth_age = (meth_age + chron_age) / 2</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P15</div>
+      <div>
+        <div class="mt">NK Immune Surveillance</div>
+        <div class="md">NKG2D ligands (MICA/MICB) are expressed only under genuine ATM/ATR stress — not baseline ROS. NK activity declines post-40. Myeloid shift suppresses NK via TGF-β
+          (<a href="papers/2026_CDATA_Digital_Twin.pdf" target="_blank">DT 2026</a>).</div>
+        <div class="mf">nkg2d = (ros×0.6 + agg×0.4 − 0.30).max(0)</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P16</div>
+      <div>
+        <div class="mt">Proteostasis / Aggresome</div>
+        <div class="md">Centrosome organizes aggresomes (Johnston 1998). CEP164 decay collapses aggresome routing; HSP70/90 oxidation reduces chaperone capacity. Combined: UPR stress rises.</div>
+        <div class="mf">aggresome_idx = cep164×0.6 + spindle×0.4</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P17</div>
+      <div>
+        <div class="mt">Compensatory Proliferation</div>
+        <div class="md">Pool &lt; 50% triggers emergency ROS boost to drive proliferation — antagonistic pleiotropy: short-term rescue at the cost of accelerated long-term damage.</div>
+        <div class="mf">ros_boost = (0.5 − pool) × 0.30  if pool &lt; 0.5</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P18</div>
+      <div>
+        <div class="mt">Circadian Rhythm</div>
+        <div class="md">CEP164 links ciliogenesis and the circadian oscillator (Clock/Bmal1 require cilia). Amplitude decay reduces proteasome night-boost — slowing aggregate clearance overnight.</div>
+        <div class="mf">amplitude = (cep164×0.6+(1−agg)×0.4)×(1−ros×0.2)</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P19</div>
+      <div>
+        <div class="mt">Autophagy / mTOR</div>
+        <div class="md">Age-driven mTOR upregulation suppresses autophagy flux. Caloric Restriction and NAD⁺ reduce mTOR → aggregate clearance independent of the proteasome.
+          (<a href="papers/2026_Review_CDATA_Digital_Twin.pdf" target="_blank">Review 2026</a>)</div>
+        <div class="mf">mTOR = 0.3 + age/100×0.5 − CR×0.30 − NAD⁺×0.20</div>
+      </div>
+    </div>
+    <div class="mech">
+      <div class="pid">P20</div>
+      <div>
+        <div class="mt">DNA Damage Response</div>
+        <div class="md">Spindle failure → aneuploidy → DSBs → ATM → p53 → p21 → G1 arrest. Closes the full CDATA→cell-cycle loop via <code>GeneExpressionState.p21_level</code>
+          (<a href="papers/2026_Centrioles_Intracellular_Timers.pdf" target="_blank">2026</a>).</div>
+        <div class="mf">γH2AX = (1−spindle)^1.5×0.8 + ros×0.2<br>p21 += p53 × 0.3</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── PLATFORM ─────────────────────────────────────────────────── -->
+<section id="platform">
+<div class="wrap">
+  <div class="stag">Digital Twin Platform</div>
+  <h2 class="sh fu">Rust · ECS · 14 Crates</h2>
+  <p class="sl fu">
+    The platform is described in full in
+    <a href="papers/2026_CDATA_Digital_Twin.pdf" target="_blank">CDATA Computational Validation and Mechanistic (2026)</a>
+    and reviewed in
+    <a href="papers/2026_Review_CDATA_Digital_Twin.pdf" target="_blank">Review of the CDATA Digital Twin (2026)</a>.
+    The digital-twin approach to centrosomal dynamics is further contextualized in
+    <a href="papers/2026_Digital_Twins_Centrosomal.pdf" target="_blank">Digital Twins of Cell Differentiation Integrating Centrosomal Dynamics (2026)</a>.
+  </p>
+  <div class="plat-layout">
+    <div class="code-win fu">
+      <div class="win-bar">
+        <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+        <span class="wf">human_development_example.rs</span>
+      </div>
+      <pre><span class="cm">// 1. Build simulation — register modules in order</span>
+<span class="kw">let mut</span> sim = <span class="ty">SimulationManager</span>::<span class="fn">new</span>(config);
+sim.<span class="fn">register_module</span>(<span class="ty">CentrioleModule</span>::<span class="fn">new</span>())?;
+sim.<span class="fn">register_module</span>(<span class="ty">CellCycleModule</span>::<span class="fn">with_params</span>(cc))?;
+sim.<span class="fn">register_module</span>(<span class="ty">MitochondrialModule</span>::<span class="fn">new</span>())?;
+sim.<span class="fn">register_module</span>(<span class="ty">HumanDevelopmentModule</span>::<span class="fn">with_params</span>(p))?;
+sim.<span class="fn">register_module</span>(<span class="ty">MyeloidShiftModule</span>::<span class="fn">new</span>())?;
+
+<span class="cm">// 2. Run 100-year simulation (365 steps/year)</span>
+<span class="kw">for</span> year <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">100</span> {
+    <span class="kw">for</span> _ <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">365</span> { sim.<span class="fn">step</span>()? }
+
+    <span class="cm">// ECS: query any component directly</span>
+    <span class="kw">let</span> mut q = world.<span class="fn">query</span>::&lt;(
+        &amp;<span class="ty">HumanDevelopmentComponent</span>,
+        &amp;<span class="ty">DDRState</span>,
+        &amp;<span class="ty">MyeloidShiftComponent</span>,
+    )&gt;();
+}
+
+<span class="cm">// 3. Add intervention dynamically</span>
+sim.<span class="fn">add_intervention</span>(<span class="ty">Intervention</span> {
+    kind: <span class="ty">InterventionKind</span>::<span class="ty">CaloricRestriction</span>,
+    start_year: <span class="nm">40</span>, duration_years: <span class="nm">20</span>,
+});</pre>
+    </div>
+    <div class="feats fu">
+      <div class="feat">
+        <div class="fi">⚙️</div>
+        <div>
+          <div class="fn2">ECS Architecture (hecs)</div>
+          <div class="fd">Each stem cell niche = one ECS entity. Components are POD structs; systems iterate component tuples with zero-cost abstraction. No GC, no runtime overhead.</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="fi">🔀</div>
+        <div>
+          <div class="fn2">CHIP Clonal Drift</div>
+          <div class="fd">NichePool tracks 20 HSC niches with <code>ClonalState</code>. CHIP-like dominance emerges by year 40 from stochastic inductor loss — detected, not programmed. See
+            <a href="papers/2023_Reduction_Stem_Cells.pdf" target="_blank">2023</a>.</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="fi">💊</div>
+        <div>
+          <div class="fn2">8 Pharmacological Interventions</div>
+          <div class="fd">Senolytics, NAD⁺, Caloric Restriction, Antioxidants, TERT, CAFD Retainer/Releaser, Centrosome Transplant. Each with calibrated effect models.
+            See <a href="papers/2019_Dasatinib_Quercetin.pdf" target="_blank">D+Q 2019</a>,
+            <a href="papers/2022_DQ_Chapter.pdf" target="_blank">D+Q 2022</a>.</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="fi">📊</div>
+        <div>
+          <div class="fn2">Sensitivity Analysis</div>
+          <div class="fd">11-parameter tornado-chart. <code>base_detach_probability</code> dominates lifespan (×4.2 effect). CSV export for downstream analysis.</div>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="fi">🌐</div>
+        <div>
+          <div class="fn2">Multi-tissue Organism Model</div>
+          <div class="fd"><code>OrganismState</code> aggregates 5 tissue types. Systemic SASP, IGF-1/GH axis, inter-tissue ROS. Three death criteria: frailty / pancytopenia / neurodegeneration.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── PUBLICATIONS ─────────────────────────────────────────────── -->
+<section id="publications" class="alt2">
+<div class="wrap">
+  <div class="stag">Publications</div>
+  <h2 class="sh fu">Papers by Jaba Tkemaladze</h2>
+  <p class="sl fu">
+    All files are available as PDF below. Papers marked
+    <span class="tag tag-dt" style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:.7rem">DT</span> describe or directly underpin the Digital Twin platform.
+  </p>
+  <div class="pubs-grid fu">
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_CDATA_Digital_Twin.pdf" target="_blank">CDATA Computational Validation and Mechanistic Modeling: The Digital Twin Platform</a></div>
+        <div class="pub-meta">Tkemaladze J. — Primary platform paper: full architecture, calibration, validation, intervention pharmacology.</div>
+        <div class="pub-tags"><span class="tag tag-dt">DT</span><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2026_CDATA_Digital_Twin.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Review_CDATA_Digital_Twin.pdf" target="_blank">Review of the CDATA Digital Twin (v0.1.0)</a></div>
+        <div class="pub-meta">Tkemaladze J. — Independent scientific review of the DT platform: biological accuracy, test coverage, open questions.</div>
+        <div class="pub-tags"><span class="tag tag-dt">DT</span><span class="tag tag-rev">Review</span></div>
+      </div>
+      <a href="papers/2026_Review_CDATA_Digital_Twin.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Digital_Twins_Centrosomal.pdf" target="_blank">Digital Twins of Cell Differentiation Integrating Centrosomal Dynamics</a></div>
+        <div class="pub-meta">Tkemaladze J. — Theoretical framework for centrosome-aware digital twins; context for the CDATA DT approach.</div>
+        <div class="pub-tags"><span class="tag tag-dt">DT</span><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2026_Digital_Twins_Centrosomal.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Strategic_Timekeepers.pdf" target="_blank">Strategic Timekeepers: Centrioles as Molecular Clocks of Cellular Age</a></div>
+        <div class="pub-meta">Tkemaladze J. — The centrosomal ledger concept: centrioles as integrators of cellular time and fate.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2026_Strategic_Timekeepers.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_CAFDs.pdf" target="_blank">Centriole-Associated Fate Determinants (CAFDs): Molecular Identity and Function</a></div>
+        <div class="pub-meta">Tkemaladze J. — Defines and characterizes the CAFD complex — the molecular implementation of CDATA inducers.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-exp">Experimental</span></div>
+      </div>
+      <a href="papers/2026_CAFDs.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Old_Centrioles_Make_Old_Bodies.pdf" target="_blank">Old Centrioles Make Old Bodies</a></div>
+        <div class="pub-meta">Tkemaladze J. — Population-level argument: why selective accumulation of aged centrioles in stem cells is the main driver of organismal aging.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2026_Old_Centrioles_Make_Old_Bodies.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Centrioles_Asymmetric_Division.pdf" target="_blank">Centrioles as Determinants of Asymmetric Stem Cell Division</a></div>
+        <div class="pub-meta">Tkemaladze J. — How centriole asymmetry controls the asymmetric division outcome; connection to potency maintenance and aging.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-exp">Experimental</span></div>
+      </div>
+      <a href="papers/2026_Centrioles_Asymmetric_Division.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Mother_Daughter_Centrioles.pdf" target="_blank">Mother and Daughter Centrioles Are Not Equivalent</a></div>
+        <div class="pub-meta">Tkemaladze J. — Molecular and functional differences between mother and daughter centrioles; basis for M/D asymmetry in CDATA.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2026_Mother_Daughter_Centrioles.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2026</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2026_Centrioles_Intracellular_Timers.pdf" target="_blank">Centrioles as Intracellular Timers of the Cell Cycle and Cell Fate</a></div>
+        <div class="pub-meta">Tkemaladze J. — Mechanistic model linking centriole state to cell cycle timing; basis for the P20 DDR module.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-dt">DT</span></div>
+      </div>
+      <a href="papers/2026_Centrioles_Intracellular_Timers.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2025</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2025_Asymmetric_Divisions.pdf" target="_blank">Asymmetric Divisions of Stem Cells and Their Centrosome-Centriole Dynamics</a></div>
+        <div class="pub-meta">Tkemaladze J. — Comprehensive review of stem cell asymmetric division with centrosome/centriole focus; underpins Track B simulation.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-rev">Review</span></div>
+      </div>
+      <a href="papers/2025_Asymmetric_Divisions.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2025</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2025_Centriole_Elimination_Entropy.pdf" target="_blank">Centriole Elimination: A Mechanism for Resetting Entropy in the Cell</a></div>
+        <div class="pub-meta">Tkemaladze J. — Thermodynamic perspective: centriole elimination in germ cells as entropy reset; basis for de novo biogenesis in the DT.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2025_Centriole_Elimination_Entropy.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2024</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2024_Division_Rate_Decreases_With_Age.pdf" target="_blank">The Rate of Stem Cell Division Decreases with Age</a></div>
+        <div class="pub-meta">Tkemaladze J. — Molecular analysis of progressive division rate decline: CEP164/cilia axis, spindle-p21, ROS quiescence, mTOR, and PTM accumulation. Basis for Track&nbsp;F.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-dt">DT</span><span class="tag tag-exp">Experimental</span></div>
+      </div>
+      <a href="papers/2024_Division_Rate_Decreases_With_Age.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2023</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2023_Reduction_Stem_Cells.pdf" target="_blank">Reduction, Proliferation, and Differentiation Defects of Stem Cells over Time</a></div>
+        <div class="pub-meta">Tkemaladze J. — Empirical data and theory on age-related HSC pool depletion; calibration basis for Track B and CHIP dynamics.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-exp">Experimental</span></div>
+      </div>
+      <a href="papers/2023_Reduction_Stem_Cells.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2022</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2022_DQ_Chapter.pdf" target="_blank">Cross-Senolytic Effects of Dasatinib and Quercetin — Chapter 4</a></div>
+        <div class="pub-meta">Tkemaladze J. — Issues and Developments in Medicine and Medical Research Vol. 2. Clinical senolytic data underpinning the Senolytics intervention model.</div>
+        <div class="pub-tags"><span class="tag tag-clin">Clinical</span><span class="tag tag-dt">DT</span></div>
+      </div>
+      <a href="papers/2022_DQ_Chapter.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2019</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2019_Dasatinib_Quercetin.pdf" target="_blank">Dasatinib and Quercetin: Short-Term Simultaneous Administration Improves Physical Capacity in Humans</a></div>
+        <div class="pub-meta">Tkemaladze J. — First human D+Q senolytic trial; demonstrates measurable anti-aging effect, calibrates D+Q parameters in DT.</div>
+        <div class="pub-tags"><span class="tag tag-clin">Clinical</span><span class="tag tag-dt">DT</span></div>
+      </div>
+      <a href="papers/2019_Dasatinib_Quercetin.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2012</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2012_New_Class_RNAs.pdf" target="_blank">A New Class of RNAs and the Centrosomal Hypothesis of Cell Aging</a></div>
+        <div class="pub-meta">Tkemaladze J. — Discovery of centrosomal RNA; structural role in stabilizing inductor complexes; extended CDATA molecular basis.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-exp">Experimental</span></div>
+      </div>
+      <a href="papers/2012_New_Class_RNAs.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2012</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2012_RNA_Centrosomes.pdf" target="_blank">RNA in Centrosomes: Structure and Possible Functions</a></div>
+        <div class="pub-meta">Tkemaladze J. — Structural characterization of centrosomal RNA; connection to inductor complex stability and CDATA.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2012_RNA_Centrosomes.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2011</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2011_Programming_Age_Changes.pdf" target="_blank">Programming and Implementation of Age-Related Changes</a></div>
+        <div class="pub-meta">Tkemaladze J. — Formalizes the programmatic nature of aging in CDATA; theoretical basis for the Hayflick/telomere Track C simulation.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2011_Programming_Age_Changes.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2010</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2010_Centriole_Differentiation_Senescence.pdf" target="_blank">Centriole, Differentiation, and Senescence</a></div>
+        <div class="pub-meta">Tkemaladze J. — Pivotal paper: defines the M/D inductor duality, potency mapping, and the O₂-detachment mechanism. Core reference for the ECS inductor model.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span><span class="tag tag-dt">DT</span></div>
+      </div>
+      <a href="papers/2010_Centriole_Differentiation_Senescence.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2008</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2008_Centrosomal_Hypothesis.pdf" target="_blank">Центросомная Гипотеза Клеточного Старения и Дифференциации</a></div>
+        <div class="pub-meta">Tkemaladze J. — Full centrosomal hypothesis paper in Russian; establishes the ROS-shield mechanism and mitochondrial-centrosome axis.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2008_Centrosomal_Hypothesis.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+    <div class="pub">
+      <div class="pub-year">2005</div>
+      <div class="pub-body">
+        <div class="pub-title"><a href="papers/2005_Centriolar_Mechanisms.pdf" target="_blank">Centriolar Mechanisms of Differentiation and Replicative Aging of Higher Animal Cells</a></div>
+        <div class="pub-meta">Tkemaladze J. — Founding paper of CDATA. First formal statement that centriolar damage drives replicative aging through loss of differentiation inducers.</div>
+        <div class="pub-tags"><span class="tag tag-core">Core CDATA</span></div>
+      </div>
+      <a href="papers/2005_Centriolar_Mechanisms.pdf" target="_blank" class="pub-pdf">PDF ↗</a>
+    </div>
+
+  </div>
+</div>
+</section>
+
+<!-- ── FOOTER ───────────────────────────────────────────────────── -->
+<footer style="background:var(--bg);border-top:1px solid var(--border);padding:32px 24px;text-align:center">
+  <div style="font-size:1.1rem;font-weight:900;color:var(--acc);margin-bottom:8px;letter-spacing:.06em">CDATA Digital Twin</div>
+  <p style="font-size:.78rem;color:var(--dim)">
+    Centriolar Damage Accumulation Theory of Aging — Jaba Tkemaladze<br>
+    Rust · hecs ECS · 14 crates · 190 unit tests · Calibrated lifespan 78 years
+  </p>
+</footer>
+
+<!-- ── Canvas particles ──────────────────────────────────────────── -->
+<script>
+(function(){
+  const C=document.getElementById('bg'),ctx=C.getContext('2d');
+  function rs(){C.width=C.offsetWidth;C.height=C.offsetHeight}
+  window.addEventListener('resize',rs);rs();
+  const pts=Array.from({length:70},()=>({
+    x:Math.random(),y:Math.random(),
+    vx:(Math.random()-.5)*.00011,vy:(Math.random()-.5)*.00011,
+    r:Math.random()*1.6+.4,
+    a:Math.random()*.45+.1,
+    h:Math.random()>.65?270:195
+  }));
+  const nodes=[{x:.2,y:.3},{x:.75,y:.22},{x:.55,y:.6},{x:.15,y:.7},{x:.85,y:.55}];
+  function draw(){
+    const W=C.width,H=C.height;
+    ctx.clearRect(0,0,W,H);
+    for(let i=0;i<pts.length;i++){
+      for(let j=i+1;j<pts.length;j++){
+        const p=pts[i],q=pts[j];
+        const dx=(p.x-q.x)*W,dy=(p.y-q.y)*H,d=Math.sqrt(dx*dx+dy*dy);
+        if(d<110){
+          ctx.beginPath();ctx.moveTo(p.x*W,p.y*H);ctx.lineTo(q.x*W,q.y*H);
+          ctx.strokeStyle=`rgba(0,198,255,${.035*(1-d/110)})`;ctx.lineWidth=.6;ctx.stroke();
+        }
+      }
+    }
+    nodes.forEach(n=>{
+      const g=ctx.createRadialGradient(n.x*W,n.y*H,0,n.x*W,n.y*H,55);
+      g.addColorStop(0,'rgba(0,198,255,.07)');g.addColorStop(1,'rgba(0,198,255,0)');
+      ctx.beginPath();ctx.arc(n.x*W,n.y*H,55,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+      ctx.beginPath();ctx.arc(n.x*W,n.y*H,3.5,0,Math.PI*2);
+      ctx.fillStyle='rgba(0,198,255,.55)';ctx.fill();
+    });
+    pts.forEach(p=>{
+      ctx.beginPath();ctx.arc(p.x*W,p.y*H,p.r,0,Math.PI*2);
+      ctx.fillStyle=`hsla(${p.h},100%,68%,${p.a})`;ctx.fill();
+      p.x+=p.vx;p.y+=p.vy;
+      if(p.x<0)p.x=1;if(p.x>1)p.x=0;if(p.y<0)p.y=1;if(p.y>1)p.y=0;
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// Fade-up on scroll
+(function(){
+  const obs=new IntersectionObserver(e=>e.forEach(e=>{
+    if(e.isIntersecting){e.target.classList.add('in');obs.unobserve(e.target)}
+  }),{threshold:.1});
+  document.querySelectorAll('.fu').forEach(el=>obs.observe(el));
+})();
+</script>
+</body>
+</html>
