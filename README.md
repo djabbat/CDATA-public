@@ -142,7 +142,7 @@ Additional loops:
 cell_dt/
 ├── crates/
 │   ├── cell_dt_core/
-│   │   └── src/components.rs          # All ECS components (P21–P26 included)
+│   │   └── src/components.rs          # All ECS components (P21–P27 included)
 │   └── cell_dt_modules/
 │       └── human_development_module/
 │           └── src/
@@ -153,6 +153,7 @@ cell_dt/
 │               ├── ze_health.rs       # Ze Vector Theory bridge, ZeHealthState (P24)
 │               ├── microtubule.rs     # MT dynamics DII model, MicrotubuleState (P25)
 │               ├── golgi.rs           # Golgi fragmentation → CEP164 glycosylation (P26)
+│               ├── genetic.rs         # SNP-based DamageParams modifiers, GeneticProfile (P27)
 │               ├── inducers.rs        # M/D inducer system, O₂-detachment
 │               ├── development.rs     # Developmental stages and rates
 │               ├── tissues.rs         # 11 tissue types, TissueState
@@ -163,7 +164,7 @@ cell_dt/
         └── human_development_example.rs  # Full 100-year simulation
 ```
 
-**Tests: 259+** (human_development_module: 173+; full workspace: 259+)
+**Tests: 268+** (human_development_module: 182+; full workspace: 268+)
 **Rule: before every git push — update README.md to reflect implemented components.**
 
 ---
@@ -351,6 +352,34 @@ pub struct GolgiState {
 }
 // Extra CEP164 loss = (1 − cep164_glycosylation) × sensitivity × dt
 ```
+
+### `GeneticProfile` + `GeneticVariant` — P27 (level 0: cell)
+
+SNP-based per-niche DamageParams multipliers — population-level heterogeneity:
+
+```rust
+pub enum GeneticVariant {
+    Average, Apoe4, Apoe2, Lrrk2G2019s, FoxO3aLongevity, Sod2Ala16Val, Custom,
+}
+
+pub struct GeneticProfile {
+    pub carbonylation_risk: f32,  // multiplier on base_ros_damage_rate
+    pub acetylation_risk:   f32,  // multiplier on acetylation_rate
+    pub aggregation_risk:   f32,  // multiplier on aggregation_rate
+    pub phospho_risk:       f32,  // multiplier on phospho_dysregulation_rate
+    pub appendage_risk:     f32,  // full effect on CEP164/CEP89; ×0.5 excess on Ninein/CEP170
+    pub ros_feedback_risk:  f32,  // multiplier on ros_feedback_coefficient (NOT scaled by lf)
+    pub longevity_factor:   f32,  // global rate scaler; <1.0 also boosts repair_rates
+    pub variant: GeneticVariant,
+}
+// Presets: average() [all 1.0], apoe4() [lf=1.15], apoe2() [lf=0.90],
+//          lrrk2_g2019s() [phospho×1.40, aggreg×1.25], foxo3a_longevity() [lf=0.82],
+//          sod2_ala16val() [ros_feedback×1.25]
+```
+
+`apply_genetic_modifiers(base, profile)` returns a new `DamageParams` with SNP-adjusted rates.
+Entities without `GeneticProfile` use base params (backward-compatible).
+Implemented via pre-pass HashMap to stay within hecs 0.10 tuple query limit (15 elements).
 
 ---
 

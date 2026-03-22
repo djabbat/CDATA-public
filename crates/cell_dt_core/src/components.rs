@@ -1009,6 +1009,184 @@ impl Default for ROSCascadeState {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GeneticProfile — ECS-компонент (Уровень 0: клетка)
+//
+// SNP-профиль стволовой ниши: мультипликативные модификаторы DamageParams.
+//
+// Каждая ниша может иметь индивидуальный генетический фон, задаваемый при
+// инициализации. Во время симуляции GeneticProfile не изменяется — читается
+// как постоянный контекст при каждом шаге.
+//
+// # Генетические ассоциации (источники)
+//   APOE4:      carbonylation↑, ros_feedback↑, aggregation↑ (Liu 2013)
+//   APOE2:      longevity↑ (Lill 2012)
+//   LRRK2-G2019S: phospho↑↑, aggregation↑↑ — паркинсонизм (Paisan-Ruiz 2004)
+//   FOXO3a:     longevity_factor↓ — голубая зона (Willcox 2008)
+//   SOD2-Ala16Val: ros_feedback↑ — неполный импорт в митохондрии (Rosenblum 1996)
+//   GPx1-Pro198Leu: ros_feedback↑ (Rahmanto 2012)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Класс генетического варианта для логирования и SA-анализа.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GeneticVariant {
+    /// Среднепопуляционный (все множители = 1.0).
+    Average,
+    /// APOE ε4/ε4 — повышенный риск нейродегенерации, воспаления.
+    Apoe4,
+    /// APOE ε2/ε2 — протективный вариант, снижение воспаления.
+    Apoe2,
+    /// LRRK2 G2019S — болезнь Паркинсона, фосфо-дисрегуляция↑↑.
+    Lrrk2G2019s,
+    /// FOXO3a rs2802292 — долгожительство (голубые зоны).
+    FoxO3aLongevity,
+    /// SOD2 Ala16Val + GPx1 Pro198Leu — повышенный ROS-петлевой коэффициент.
+    Sod2Ala16Val,
+    /// Пользовательский (все поля задаются вручную).
+    Custom,
+}
+
+/// Генетический профиль стволовой ниши (Уровень 0: клетка).
+///
+/// Мультипликативные модификаторы DamageParams — применяются каждый шаг
+/// поверх интервенционных эффектов. Позволяет моделировать SNP-зависимую
+/// гетерогенность пула стволовых клеток.
+///
+/// Значения > 1.0 = повышенный риск. Значения < 1.0 = протективный вариант.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneticProfile {
+    /// Риск карбонилирования (SAS-6/CEP135 через ROS) [0.5..3.0].
+    /// APOE4: 1.30; APOE2: 0.90; среднее: 1.0.
+    pub carbonylation_risk: f32,
+
+    /// Риск гиперацетилирования тубулина (HDAC6/SIRT2 варианты) [0.5..2.0].
+    pub acetylation_risk: f32,
+
+    /// Риск агрегации (CPAP/CEP290; LRRK2/PINK1/SNCA) [0.5..3.0].
+    /// LRRK2-G2019S: 1.60; APOE4: 1.15.
+    pub aggregation_risk: f32,
+
+    /// Риск фосфо-дисрегуляции (PLK4/NEK2 полиморфизмы) [0.5..3.0].
+    /// LRRK2-G2019S: 1.40 (избыточная LRRK2-киназная активность).
+    pub phospho_risk: f32,
+
+    /// Риск потери придатков (CEP164/CEP89 полиморфизмы) [0.5..2.0].
+    /// Применяется к дистальным (полностью) и субдистальным (×0.5) придаткам.
+    pub appendage_risk: f32,
+
+    /// Риск петли обратной связи ROS (SOD2/GPx1 варианты) [0.5..2.5].
+    /// SOD2-Ala16Val: 1.25 (неполный митохондриальный импорт → ROS↑).
+    pub ros_feedback_risk: f32,
+
+    /// Фактор долгожительства (FOXO3a/CETP/APOE2) [0.5..1.2].
+    /// FOXO3a-долгожитель: 0.80. Среднее: 1.0. Применяется ко всем rate-полям.
+    pub longevity_factor: f32,
+
+    /// Тип генетического варианта (для логирования и фильтрации).
+    pub variant: GeneticVariant,
+}
+
+impl GeneticProfile {
+    /// Среднепопуляционный профиль (нейтральный).
+    pub fn average() -> Self {
+        Self {
+            carbonylation_risk: 1.0,
+            acetylation_risk:   1.0,
+            aggregation_risk:   1.0,
+            phospho_risk:       1.0,
+            appendage_risk:     1.0,
+            ros_feedback_risk:  1.0,
+            longevity_factor:   1.0,
+            variant:            GeneticVariant::Average,
+        }
+    }
+
+    /// APOE ε4/ε4 — повышенный нейродегенеративный риск.
+    ///
+    /// Источники: Liu et al. 2013 Nat Rev Neurosci; Huang & Mahley 2014 Neurobiol Dis.
+    pub fn apoe4() -> Self {
+        Self {
+            carbonylation_risk: 1.30,
+            acetylation_risk:   1.05,
+            aggregation_risk:   1.15,
+            phospho_risk:       1.05,
+            appendage_risk:     1.10,
+            ros_feedback_risk:  1.20,
+            longevity_factor:   1.0,
+            variant:            GeneticVariant::Apoe4,
+        }
+    }
+
+    /// APOE ε2/ε2 — протективный вариант.
+    pub fn apoe2() -> Self {
+        Self {
+            carbonylation_risk: 0.90,
+            acetylation_risk:   1.0,
+            aggregation_risk:   0.90,
+            phospho_risk:       1.0,
+            appendage_risk:     0.92,
+            ros_feedback_risk:  0.90,
+            longevity_factor:   1.0,
+            variant:            GeneticVariant::Apoe2,
+        }
+    }
+
+    /// LRRK2 G2019S — доминантная мутация болезни Паркинсона.
+    ///
+    /// Gain-of-function киназной активности → PLK4-дисрегуляция, синуклеин-агрегация.
+    /// Источник: Paisan-Ruiz et al. 2004 Neuron.
+    pub fn lrrk2_g2019s() -> Self {
+        Self {
+            carbonylation_risk: 1.10,
+            acetylation_risk:   1.10,
+            aggregation_risk:   1.60,
+            phospho_risk:       1.40,
+            appendage_risk:     1.20,
+            ros_feedback_risk:  1.15,
+            longevity_factor:   1.0,
+            variant:            GeneticVariant::Lrrk2G2019s,
+        }
+    }
+
+    /// FOXO3a rs2802292 — долгожительство (Окинава, Сардиния).
+    ///
+    /// Источник: Willcox et al. 2008 PNAS.
+    pub fn foxo3a_longevity() -> Self {
+        Self {
+            carbonylation_risk: 0.90,
+            acetylation_risk:   0.95,
+            aggregation_risk:   0.90,
+            phospho_risk:       0.95,
+            appendage_risk:     0.90,
+            ros_feedback_risk:  0.90,
+            longevity_factor:   0.80,
+            variant:            GeneticVariant::FoxO3aLongevity,
+        }
+    }
+
+    /// SOD2 Ala16Val — сниженный митохондриальный импорт СОД.
+    ///
+    /// Источник: Rosenblum et al. 1996; Mehdikhani 2011.
+    pub fn sod2_ala16val() -> Self {
+        Self {
+            carbonylation_risk: 1.15,
+            acetylation_risk:   1.05,
+            aggregation_risk:   1.10,
+            phospho_risk:       1.05,
+            appendage_risk:     1.05,
+            ros_feedback_risk:  1.25,
+            longevity_factor:   1.0,
+            variant:            GeneticVariant::Sod2Ala16Val,
+        }
+    }
+}
+
+impl Default for GeneticProfile {
+    fn default() -> Self {
+        Self::average()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ZeHealthState — ECS-компонент (Уровень -5: Ze Vector Theory)
 //
 // Интерпретационный слой: переводит молекулярный биомаркер CAII

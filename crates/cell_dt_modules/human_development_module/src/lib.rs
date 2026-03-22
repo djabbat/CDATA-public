@@ -46,6 +46,7 @@ use cell_dt_core::{
         ZeHealthState,
         MicrotubuleState,
         GolgiState,
+        GeneticProfile,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,7 @@ pub mod ros_cascade;
 pub mod ze_health;
 pub mod microtubule;
 pub mod golgi;
+pub mod genetic;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -83,6 +85,7 @@ pub use ros_cascade::{ROSCascadeParams, update_ros_cascade};
 pub use ze_health::update_ze_health_state;
 pub use microtubule::{MicrotubuleParams, update_microtubule_state};
 pub use golgi::{GolgiParams, update_golgi_state};
+pub use genetic::apply_genetic_modifiers;
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)
@@ -920,7 +923,19 @@ impl SimulationModule for HumanDevelopmentModule {
             Option<&mut GolgiState>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt, mut ze_health_opt, mut microtubule_opt, mut golgi_opt)) in query.iter() {
+        // P27: Предварительный сбор GeneticProfile (отдельный запрос — не влезает в основной tuple).
+        // hecs 0.10 ограничивает tuple-query до 15 элементов.
+        // Используем HashMap<Entity, GeneticProfile> для O(1)-доступа в главном цикле.
+        let genetic_profiles: std::collections::HashMap<
+            cell_dt_core::hecs::Entity,
+            GeneticProfile,
+        > = world.query::<&GeneticProfile>()
+            .iter()
+            .map(|(e, p)| (e, p.clone()))
+            .collect();
+
+        for (entity, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt, mut ze_health_opt, mut microtubule_opt, mut golgi_opt)) in query.iter() {
+            let genetic_opt = genetic_profiles.get(&entity);
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -1004,6 +1019,15 @@ impl SimulationModule for HumanDevelopmentModule {
                     0.0
                 };
 
+                // P27: Генетическая гетерогенность — SNP-мультипликаторы DamageParams.
+                // Применяется поверх интервенционных эффектов (iv_effect.damage_params).
+                // При отсутствии GeneticProfile: iv_effect.damage_params используется без изменений.
+                let effective_params: DamageParams = if let Some(gen) = genetic_opt {
+                    genetic::apply_genetic_modifiers(&iv_effect.damage_params, gen)
+                } else {
+                    iv_effect.damage_params.clone()
+                };
+
                 // P22: Термодинамический множитель Аррениуса.
                 // Если ThermodynamicState присутствует и enable_arrhenius=true:
                 // effective_dt_years = dt_years × damage_rate_multiplier.
@@ -1015,7 +1039,7 @@ impl SimulationModule for HumanDevelopmentModule {
 
                 accumulate_damage(
                     &mut comp.centriolar_damage,
-                    &iv_effect.damage_params,  // P11: эффективные параметры (с интервенциями)
+                    &effective_params,  // P11+P27: интервенции + генетика
                     age_years,
                     dt_thermo,  // P22: термодинамически скорректированный dt
                     infl_ros_boost + epi_ros_from_prev + mito_ros_boost + compensatory_ros_boost,
@@ -1072,7 +1096,7 @@ impl SimulationModule for HumanDevelopmentModule {
                     let effective_mitophagy = (base_mitophagy + iv_effect.extra_mitophagy).min(1.0);
                     damage::apply_appendage_repair(
                         &mut comp.centriolar_damage,
-                        &iv_effect.damage_params,  // P11: эффективные параметры
+                        &effective_params,  // P11+P27: интервенции + генетика
                         effective_mitophagy,
                         dt_years,
                     );
@@ -1099,14 +1123,14 @@ impl SimulationModule for HumanDevelopmentModule {
 
                     damage::accumulate_appendage_damage(
                         appendage,
-                        &iv_effect.damage_params,
+                        &effective_params,  // P11+P27
                         oh_level,
                         age_years,
                         dt_years,
                     );
                     damage::apply_appendage_protein_repair(
                         appendage,
-                        &iv_effect.damage_params,
+                        &effective_params,  // P11+P27
                         effective_mitophagy,
                         dt_years,
                     );
