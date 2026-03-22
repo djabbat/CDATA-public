@@ -43,6 +43,8 @@ use cell_dt_core::{
         HormonalFertilityState,
         ThermodynamicState,
         ROSCascadeState,
+        ZeHealthState,
+        MicrotubuleState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +63,8 @@ pub mod interventions;
 pub mod hormonal_fertility;
 pub mod thermodynamics;
 pub mod ros_cascade;
+pub mod ze_health;
+pub mod microtubule;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -74,6 +78,8 @@ pub use development::{division_rate_per_year, base_ros_level, stage_for_age};
 pub use interventions::{Intervention, InterventionKind, InterventionEffect};
 pub use thermodynamics::{ThermodynamicParams, update_thermodynamic_state, arrhenius_multiplier};
 pub use ros_cascade::{ROSCascadeParams, update_ros_cascade};
+pub use ze_health::update_ze_health_state;
+pub use microtubule::{MicrotubuleParams, update_microtubule_state};
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)
@@ -261,6 +267,9 @@ pub struct HumanDevelopmentModule {
     /// P23: параметры ROS-каскада — общие для всего модуля.
     /// Применяются при наличии ROSCascadeState у сущности.
     ros_cascade_params: ros_cascade::ROSCascadeParams,
+    /// P25: параметры динамики микротрубочек — общие для всего модуля.
+    /// Применяются при наличии MicrotubuleState у сущности.
+    microtubule_params: microtubule::MicrotubuleParams,
 }
 
 /// Агрегированные морфогенные поля по всем живым нишам.
@@ -289,6 +298,7 @@ impl HumanDevelopmentModule {
             morphogen_aggregates: MorphogenAggregates::default(),
             thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
             ros_cascade_params: ros_cascade::ROSCascadeParams::default(),
+            microtubule_params: microtubule::MicrotubuleParams::default(),
         }
     }
 
@@ -307,6 +317,7 @@ impl HumanDevelopmentModule {
             morphogen_aggregates: MorphogenAggregates::default(),
             thermodynamic_params: thermodynamics::ThermodynamicParams::default(),
             ros_cascade_params: ros_cascade::ROSCascadeParams::default(),
+            microtubule_params: microtubule::MicrotubuleParams::default(),
         }
     }
 
@@ -318,6 +329,11 @@ impl HumanDevelopmentModule {
     /// P23: Задать параметры ROS-каскада.
     pub fn set_ros_cascade_params(&mut self, params: ros_cascade::ROSCascadeParams) {
         self.ros_cascade_params = params;
+    }
+
+    /// P25: Задать параметры динамики микротрубочек.
+    pub fn set_microtubule_params(&mut self, params: microtubule::MicrotubuleParams) {
+        self.microtubule_params = params;
     }
 
     /// P11: Добавить терапевтическую интервенцию в расписание.
@@ -886,9 +902,11 @@ impl SimulationModule for HumanDevelopmentModule {
             Option<&mut cell_dt_core::components::AppendageProteinState>,
             Option<&mut ThermodynamicState>,
             Option<&mut ROSCascadeState>,
+            Option<&mut ZeHealthState>,
+            Option<&mut MicrotubuleState>,
         )>();
 
-        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt)) in query.iter() {
+        for (_, (comp, inflammaging_opt, exhaustion_opt, centriole_opt, mut telomere_opt, mut epigenetic_opt, mut diff_status_opt, mut modulation_opt, mito_opt, mut appendage_opt, mut thermo_opt, mut ros_cascade_opt, mut ze_health_opt, mut microtubule_opt)) in query.iter() {
             if !comp.is_alive { continue; }
 
             // Предварительно извлекаем значения из InflammagingState (если модуль активен)
@@ -1122,6 +1140,41 @@ impl SimulationModule for HumanDevelopmentModule {
                         &self.thermodynamic_params,
                         dt_years,
                     );
+                }
+
+                // 3ж. P24: ZeHealthState — Ze Vector Theory (уровень -5).
+                // Интерпретирует CAII → Ze-скорость v; опционально объединяет с энтропийной оценкой.
+                // Источники: CAII из AppendageProteinState (уже обновлён в 3г),
+                //            ze_velocity_analog из ThermodynamicState (уже обновлён в 3д).
+                if let Some(ref mut ze) = ze_health_opt {
+                    let caii = appendage_opt.as_ref().map_or(
+                        // Fallback: CAII из CentriolarDamageState (mean appendages)
+                        (comp.centriolar_damage.cep164_integrity
+                            * comp.centriolar_damage.cep89_integrity
+                            * comp.centriolar_damage.ninein_integrity
+                            * comp.centriolar_damage.cep170_integrity).powf(0.25),
+                        |a| a.caii,
+                    );
+                    let entropy_v = thermo_opt.as_ref().map(|t| t.ze_velocity_analog);
+                    ze_health::update_ze_health_state(ze, caii, entropy_v);
+                }
+
+                // 3з. P25: MicrotubuleState — динамика MT (уровень -2).
+                // Обновляет poly/catastrophe из PTM, затем DII и spindle_fidelity_derived.
+                // После обновления spindle_fidelity_derived → CentriolarDamageState.spindle_fidelity
+                // (переопределяет скалярное значение, вычисленное в update_functional_metrics).
+                if let Some(ref mut mt) = microtubule_opt {
+                    let ninein = appendage_opt.as_ref()
+                        .map_or(comp.centriolar_damage.ninein_integrity, |a| a.ninein);
+                    microtubule::update_microtubule_state(
+                        mt,
+                        ptm_acetylation,
+                        comp.centriolar_damage.phosphorylation_dysregulation,
+                        ninein,
+                        &self.microtubule_params,
+                    );
+                    // Синхронизация → CentriolarDamageState (обратная совместимость)
+                    comp.centriolar_damage.spindle_fidelity = mt.spindle_fidelity_derived;
                 }
 
                 // Проверка на биологически нереалистичные значения

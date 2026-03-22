@@ -1008,6 +1008,205 @@ impl Default for ROSCascadeState {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ZeHealthState — ECS-компонент (Уровень -5: Ze Vector Theory)
+//
+// Интерпретационный слой: переводит молекулярный биомаркер CAII
+// в пространство Ze Vector Theory (Tkemaladze).
+//
+// Ze Theory: каждая биологическая система движется в пространстве-времени
+// с нормированной скоростью v ∈ [0,1].
+//   v < v* : гипо-метаболизм (гибернация — теоретически)
+//   v = v* : оптимальное здоровье (молодой взрослый ~18–25 лет)
+//   v > v* : ускоренное старение (inflammaging, прогерия)
+//   v → 1  : коллапс (смерть клетки/организма)
+//
+// Формула: v = v* + (1 − v*) × (1 − CAII)
+//   При CAII=1.0: v = v* = 0.456 (интактные придатки = оптимальная скорость)
+//   При CAII=0.0: v = 1.0 (полная потеря придатков = коллапс)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ze-состояние здоровья стволовой ниши (Уровень -5: Ze Vector Theory).
+///
+/// Вычисляется из CAII (Centriolar Appendage Integrity Index) через
+/// Ze-преобразование. Опционально дополняется энтропийной оценкой
+/// из ThermodynamicState.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZeHealthState {
+    /// Ze-скорость v [0..1].
+    ///
+    /// Вычисляется из CAII:
+    ///   v = v* + (1 − v*) × (1 − CAII) = 0.456 + 0.544 × (1 − CAII)
+    ///
+    /// Биологический смысл: скорость «потребления» биологического времени.
+    /// Молодая клетка (CAII≈1): v≈v*=0.456. Старая (CAII→0): v→1.0.
+    pub v: f32,
+
+    /// Отклонение от оптимальной Ze-скорости |v − v*| [0..0.544].
+    ///
+    /// deviation = 0 → идеальное здоровье.
+    /// deviation = 0.544 → полная потеря придатков (CAII=0).
+    pub deviation_from_optimal: f32,
+
+    /// Ze-индекс здоровья [0..1].
+    ///
+    /// ze_health = 1 − deviation / (1 − v*) = CAII.
+    /// Эквивалентен CAII — удобный нормированный клинический биомаркер.
+    /// При v=v*: ze_health=1.0. При v=1.0: ze_health=0.0.
+    pub ze_health_index: f32,
+
+    /// Ze-скорость из энтропийной оценки (ThermodynamicState) [0..1].
+    ///
+    /// v_entropy = entropy_production / (entropy_production + K_ze)
+    /// Независимый термодинамический биомаркер; обновляется если
+    /// ThermodynamicState присутствует у сущности.
+    pub v_entropy: f32,
+
+    /// Консенсусная Ze-скорость — среднее v и v_entropy [0..1].
+    ///
+    /// При отсутствии ThermodynamicState: = v.
+    pub v_consensus: f32,
+}
+
+impl ZeHealthState {
+    /// Оптимальная Ze-скорость (критическая точка T/S квантов).
+    pub const V_OPTIMAL: f32 = 0.456;
+    /// Максимальное отклонение (при CAII=0): 1.0 − v* = 0.544.
+    pub const MAX_DEVIATION: f32 = 1.0 - Self::V_OPTIMAL;
+
+    /// Вычислить ZeHealthState из CAII (без энтропийной оценки).
+    pub fn from_caii(caii: f32) -> Self {
+        let v = Self::V_OPTIMAL + Self::MAX_DEVIATION * (1.0 - caii);
+        let deviation = (v - Self::V_OPTIMAL).abs();
+        Self {
+            v,
+            deviation_from_optimal: deviation,
+            ze_health_index: caii,
+            v_entropy:   0.0,
+            v_consensus: v,
+        }
+    }
+
+    /// Обновить из CAII и опционально из энтропийной оценки.
+    pub fn update(&mut self, caii: f32, entropy_v: Option<f32>) {
+        self.v = Self::V_OPTIMAL + Self::MAX_DEVIATION * (1.0 - caii);
+        self.deviation_from_optimal = (self.v - Self::V_OPTIMAL).abs();
+        self.ze_health_index = caii;
+        if let Some(ev) = entropy_v {
+            self.v_entropy   = ev;
+            self.v_consensus = (self.v + ev) / 2.0;
+        } else {
+            self.v_consensus = self.v;
+        }
+    }
+
+    /// Биологическая интерпретация текущего состояния.
+    pub fn interpretation(&self) -> &'static str {
+        match self.deviation_from_optimal {
+            d if d < 0.05 => "optimal",
+            d if d < 0.15 => "mild_aging",
+            d if d < 0.30 => "moderate_aging",
+            d if d < 0.45 => "severe_aging",
+            _             => "near_collapse",
+        }
+    }
+}
+
+impl Default for ZeHealthState {
+    fn default() -> Self {
+        Self::from_caii(1.0) // pristine = v*
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MicrotubuleState — ECS-компонент (Уровень -2: органеллы/цитоскелет)
+//
+// Детализирует скалярный spindle_fidelity через динамику микротрубочек.
+//
+// Динамическая нестабильность MT (Mitchison & Kirschner 1984):
+//   MT переключаются между ростом (polymerization) и распадом (catastrophe).
+//   Баланс определяет стабильность MTOC и веретена деления.
+//
+// Связи:
+//   tubulin_hyperacetylation → polymerization_rate↓
+//     (гиперацетилированный тубулин: стабильный, но GTPase-неактивный)
+//   phosphorylation_dysregulation → catastrophe_rate↑
+//     (PLK4/NEK2 дисбаланс → Aurora B нарушен → MT не стабилизируются)
+//   ninein_integrity → spindle_fidelity_derived
+//     (Ninein якорит минус-концы MT к центриоли → стабилизирует веретено)
+//   dynamic_instability_index → spindle_fidelity_derived
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Динамика микротрубочек стволовой ниши (Уровень -2: цитоскелет).
+///
+/// Заменяет скалярный `spindle_fidelity` в `CentriolarDamageState` моделью,
+/// учитывающей полимеризацию и катастрофу MT.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MicrotubuleState {
+    /// Нормированная скорость полимеризации MT [0..1].
+    ///
+    /// Снижается при: tubulin_hyperacetylation (GTPase-инактивация).
+    /// Физиологически: ≈ 0.85–1.0. При патологии: < 0.5.
+    /// Источник: Bhattacharya et al. 2008 — HDAC6/tubulin deacetylase.
+    pub polymerization_rate: f32,
+
+    /// Нормированная частота катастроф MT [0..1].
+    ///
+    /// Повышается при: phosphorylation_dysregulation (PLK4/NEK2/Aurora B).
+    /// Физиологически: ≈ 0.10–0.20. При патологии: > 0.50.
+    /// Источник: Гарнер et al. 2004 — PLK1 регулирует катастрофу.
+    pub catastrophe_rate: f32,
+
+    /// Индекс динамической нестабильности (DII) [0..1].
+    ///
+    /// DII = catastrophe_rate / (polymerization_rate + catastrophe_rate)
+    /// DII→0: MT стабильны (оба конца растут). DII→1: хаотичный распад.
+    /// Источник: Mitchison & Kirschner 1984 Nature 312:237-242.
+    pub dynamic_instability_index: f32,
+
+    /// Точность веретена деления из MT-динамики [0..1].
+    ///
+    /// spindle_fidelity = (1 − DII) × ninein_factor
+    /// ninein_factor: целостность Ninein (якорение минус-концов MT).
+    /// При наличии этого компонента переопределяет
+    /// `CentriolarDamageState.spindle_fidelity`.
+    pub spindle_fidelity_derived: f32,
+}
+
+impl MicrotubuleState {
+    /// Нормальное молодое состояние (активная полимеризация, редкие катастрофы).
+    pub fn pristine() -> Self {
+        let poly = 0.90_f32;
+        let cat  = 0.10_f32;
+        let dii  = cat / (poly + cat);
+        Self {
+            polymerization_rate:        poly,
+            catastrophe_rate:           cat,
+            dynamic_instability_index:  dii,
+            spindle_fidelity_derived:   1.0 - dii, // ninein=1.0
+        }
+    }
+
+    /// Обновить DII и spindle_fidelity из текущих poly/catastrophe + ninein.
+    pub fn update_derived(&mut self, ninein_integrity: f32) {
+        let total = self.polymerization_rate + self.catastrophe_rate;
+        self.dynamic_instability_index = if total > 0.0 {
+            self.catastrophe_rate / total
+        } else {
+            1.0
+        };
+        // Ninein — якорение минус-концов: низкая целостность → ненадёжное веретено
+        self.spindle_fidelity_derived =
+            (1.0 - self.dynamic_instability_index) * ninein_integrity;
+    }
+}
+
+impl Default for MicrotubuleState {
+    fn default() -> Self {
+        Self::pristine()
+    }
+}
+
 /// Тип ткани для специфики стволовых ниш.
 ///
 /// Объединяет биологические ниши (`Neural`, `Muscle`, …) и
