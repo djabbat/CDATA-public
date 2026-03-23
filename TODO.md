@@ -2,8 +2,31 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: **2026-03-23** — P52–P60: Senescence + PTM Trajectory + InterventionLibrary + TrackABCross + CytoplasmQC + InducerHypothesis + InterSpecies
-> Тестов: **427** ✅ (+39)
+> Последнее обновление: **2026-03-23** — P61–P64: AgentPopulation + Progeria + SystemicCircadian + Figures
+> Тестов: **439** ✅ (+12)
+
+---
+
+### Выполнено в сессии 2026-03-23 (P61–P64) ✅
+
+- **[P61] Agent Population Model**: `crates/cell_dt_core/src/agent_population.rs`
+  - `AgentResult`, `AgentPopulationParams`, `AgentPopulationStats::from_results()`
+  - `simulate_agent_population()` — последовательная модель с SASP-взаимодействием
+  - 6 тестов, `examples/src/bin/agent_population_example.rs`
+  - CSV → `population_output/agent_population.csv`
+- **[P62] Thermodynamic Progeria Example**: `examples/src/bin/thermodynamic_progeria_example.rs`
+  - Normal vs Progeria (×5), ThermodynamicState + Аррениус + Ze Theory check
+  - CSV → `sensitivity_output/thermodynamic_progeria.csv`
+- **[P63] SystemicCircadianState**: добавлен в `crates/cell_dt_core/src/components.rs`
+  - `SystemicCircadianState`, `SystemicCircadianParams`, `update_systemic_circadian()`
+  - 6 тестов: synchronized, desynchronized, melatonin, jet_lag, empty, clamp
+- **[P64] Thesis Figures**: `make_thesis_figures_final.py`
+  - Fig 1: CDATA mechanism (patches, navy+gold)
+  - Fig 2: Ze-velocity trajectory + v* zones
+  - Fig 3: PTM trajectories (5 линий)
+  - Fig 4: Senescence cascade (Control vs Senolytic)
+  - Все 300 dpi → `figures/fig1-4_*.png`
+- **Тесты**: 427 → **439** (+12)
 
 ---
 
@@ -499,13 +522,12 @@ an Arrhenius Model of SASP-driven Protein Aggregation»
 
 ### Что нужно для статьи (TODO)
 
-- [ ] Написать бинарный пример `thermodynamic_progeria_example.rs`:
-  - 4 группы: normal/progeria × arrhenius_off/on
-  - Метрики каждые 5 лет: lifespan, CAII, ze_velocity, entropy
-  - CSV-вывод для графиков
+- [x] Написать бинарный пример `thermodynamic_progeria_example.rs`: ✅ P62
+  - Normal vs Progeria (×5), ThermodynamicState, Ze Theory check
+  - CSV → sensitivity_output/thermodynamic_progeria.csv
 - [ ] Проверить: Ze v* = 0.456 при entropy ≈ K_ze × (0.456/0.544) ≈ 1.68
   при default params после ~18–20 лет симуляции
-- [ ] Fig 1–4 через Python matplotlib из CSV
+- [x] Fig 1–4 через Python matplotlib из CSV ✅ P64 (make_thesis_figures_final.py)
 - [ ] Черновик введения (ROSCascadeState готов — связь замкнута: ROS → OH· → агрегация → Аррениус)
 
 ---

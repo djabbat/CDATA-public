@@ -1,5 +1,6 @@
 //! Ядро платформы симуляции клеточной дифференцировки
 
+pub mod agent_population;
 pub mod components;
 pub mod error;
 pub mod module;
@@ -8,6 +9,7 @@ pub mod simulation;
 pub mod world;
 pub mod ze_validation;
 
+pub use agent_population::*;
 pub use components::*;
 pub use error::*;
 pub use module::{SimulationModule, CdataCollect};

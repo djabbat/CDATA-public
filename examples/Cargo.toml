@@ -23,6 +23,14 @@ serde_json.workspace = true
 serde.workspace = true
 
 [[bin]]
+name = "agent_population_example"
+path = "src/bin/agent_population_example.rs"
+
+[[bin]]
+name = "thermodynamic_progeria_example"
+path = "src/bin/thermodynamic_progeria_example.rs"
+
+[[bin]]
 name = "simple_simulation"
 path = "src/bin/simple_simulation.rs"
 

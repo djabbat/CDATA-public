@@ -4855,6 +4855,245 @@ pub fn predicted_lifespan_from_cdata(species: &SpeciesProfile) -> f32 {
     78.0 / (species.base_detach_scale * species.ros_scale).sqrt()
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// P63 — SystemicCircadianState
+// Агрегатор циркадных состояний всех ниш на уровне организма.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Системное циркадное состояние организма — агрегатор всех ниш.
+///
+/// На уровне ниши используется `CircadianState`.
+/// `SystemicCircadianState` агрегирует амплитуды и фазы всех ниш,
+/// моделирует системную синхронизацию и «социальный джетлаг».
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemicCircadianState {
+    /// Среднее значение amplitude по всем нишам [0..1].
+    pub global_amplitude: f32,
+    /// Фазовая когерентность: синхронизация между нишами [0..1].
+    /// 1.0 = все ниши синхронны; 0.0 = полная десинхронизация.
+    pub phase_coherence: f32,
+    /// Дополнительный SASP-буст от нарушения циркадных ритмов [0..sasp_circadian_factor].
+    pub circadian_sasp_boost: f32,
+    /// Накопленный «социальный джетлаг» [0..1].
+    /// Растёт при десинхронизации, отражает хронический циркадный стресс.
+    pub jet_lag_index: f32,
+    /// Эффективность мелатонина [0..1].
+    /// Снижается с возрастом (age × melatonin_age_decline).
+    pub melatonin_efficacy: f32,
+}
+
+impl Default for SystemicCircadianState {
+    fn default() -> Self {
+        Self {
+            global_amplitude:       1.0,
+            phase_coherence:        1.0,
+            circadian_sasp_boost:   0.0,
+            jet_lag_index:          0.0,
+            melatonin_efficacy:     1.0,
+        }
+    }
+}
+
+/// Параметры системного циркадного состояния.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemicCircadianParams {
+    /// Сила синхронизации между нишами. По умолчанию: 0.30.
+    pub phase_coupling_strength: f32,
+    /// Вклад десинхронизации в системный SASP. По умолчанию: 0.20.
+    pub sasp_circadian_factor: f32,
+    /// Скорость снижения мелатонина с возрастом [/год]. По умолчанию: 0.008.
+    pub melatonin_age_decline: f32,
+    /// Скорость накопления джетлага [/шаг при десинхронизации]. По умолчанию: 0.0002.
+    pub jet_lag_accumulation: f32,
+}
+
+impl Default for SystemicCircadianParams {
+    fn default() -> Self {
+        Self {
+            phase_coupling_strength: 0.30,
+            sasp_circadian_factor:   0.20,
+            melatonin_age_decline:   0.008,
+            jet_lag_accumulation:    0.0002,
+        }
+    }
+}
+
+/// Обновить системное циркадное состояние за один шаг.
+///
+/// # Аргументы
+/// * `state`           — изменяемое системное состояние.
+/// * `params`          — параметры.
+/// * `niche_amplitudes` — вектор амплитуд из `CircadianState.amplitude` всех ниш.
+/// * `age_years`       — возраст организма в годах (для расчёта мелатонина).
+/// * `dt`              — шаг времени [лет].
+pub fn update_systemic_circadian(
+    state: &mut SystemicCircadianState,
+    params: &SystemicCircadianParams,
+    niche_amplitudes: &[f32],
+    age_years: f32,
+    dt: f32,
+) {
+    // 1. Глобальная амплитуда = среднее по нишам; при пустом срезе = 1.0
+    state.global_amplitude = if niche_amplitudes.is_empty() {
+        1.0
+    } else {
+        niche_amplitudes.iter().copied().sum::<f32>() / niche_amplitudes.len() as f32
+    };
+
+    // 2. Phase coherence: чем меньше стандартное отклонение амплитуд,
+    //    тем выше coherence.
+    //    sd = sqrt(mean((amp - mean)²))
+    //    coherence = (1.0 - sd × 2.0).clamp(0.0, 1.0)
+    state.phase_coherence = if niche_amplitudes.len() < 2 {
+        1.0
+    } else {
+        let mean = state.global_amplitude;
+        let variance = niche_amplitudes
+            .iter()
+            .map(|&a| (a - mean).powi(2))
+            .sum::<f32>()
+            / niche_amplitudes.len() as f32;
+        let sd = variance.sqrt();
+        (1.0 - sd * 2.0).clamp(0.0, 1.0)
+    };
+
+    // 3. SASP-буст от десинхронизации
+    state.circadian_sasp_boost =
+        (1.0 - state.phase_coherence) * params.sasp_circadian_factor;
+
+    // 4. Мелатонин снижается с возрастом
+    state.melatonin_efficacy =
+        (1.0 - age_years * params.melatonin_age_decline).clamp(0.1, 1.0);
+
+    // 5. Накопление джетлага
+    state.jet_lag_index = (state.jet_lag_index
+        + (1.0 - state.phase_coherence) * params.jet_lag_accumulation * dt)
+        .clamp(0.0, 1.0);
+}
+
+#[cfg(test)]
+mod tests_systemic_circadian {
+    use super::*;
+
+    /// 1. Все ниши с одинаковой амплитудой → phase_coherence = 1.0, sasp_boost = 0.
+    #[test]
+    fn synchronized_niches() {
+        let mut state = SystemicCircadianState::default();
+        let params = SystemicCircadianParams::default();
+        let niches = vec![0.8, 0.8, 0.8, 0.8];
+
+        update_systemic_circadian(&mut state, &params, &niches, 30.0, 1.0);
+
+        assert!(
+            (state.phase_coherence - 1.0).abs() < 1e-5,
+            "phase_coherence должен быть 1.0 при одинаковых амплитудах: {:.6}",
+            state.phase_coherence
+        );
+        assert!(
+            state.circadian_sasp_boost.abs() < 1e-5,
+            "sasp_boost должен быть 0 при синхронизации: {:.6}",
+            state.circadian_sasp_boost
+        );
+    }
+
+    /// 2. Разные амплитуды → phase_coherence < 1.0, sasp_boost > 0.
+    #[test]
+    fn desynchronized_niches() {
+        let mut state = SystemicCircadianState::default();
+        let params = SystemicCircadianParams::default();
+        let niches = vec![1.0, 0.5, 0.2, 0.9]; // разброс
+
+        update_systemic_circadian(&mut state, &params, &niches, 30.0, 1.0);
+
+        assert!(
+            state.phase_coherence < 1.0,
+            "phase_coherence должен быть < 1.0 при десинхронизации: {:.6}",
+            state.phase_coherence
+        );
+        assert!(
+            state.circadian_sasp_boost > 0.0,
+            "sasp_boost должен быть > 0 при десинхронизации: {:.6}",
+            state.circadian_sasp_boost
+        );
+    }
+
+    /// 3. Мелатонин снижается с возрастом.
+    #[test]
+    fn melatonin_declines_with_age() {
+        let params = SystemicCircadianParams::default();
+        let niches = vec![0.8, 0.8];
+
+        let mut state20 = SystemicCircadianState::default();
+        update_systemic_circadian(&mut state20, &params, &niches, 20.0, 1.0);
+
+        let mut state70 = SystemicCircadianState::default();
+        update_systemic_circadian(&mut state70, &params, &niches, 70.0, 1.0);
+
+        assert!(
+            state70.melatonin_efficacy < state20.melatonin_efficacy,
+            "melatonin_efficacy должен быть ниже в 70 лет ({:.4}) чем в 20 ({:.4})",
+            state70.melatonin_efficacy,
+            state20.melatonin_efficacy
+        );
+    }
+
+    /// 4. Несколько шагов с десинхронизацией → jet_lag_index растёт.
+    #[test]
+    fn jet_lag_accumulates() {
+        let mut state = SystemicCircadianState::default();
+        let params = SystemicCircadianParams::default();
+        let niches = vec![1.0, 0.3, 0.7, 0.2]; // разброс → десинхронизация
+
+        let initial = state.jet_lag_index;
+        for _ in 0..100 {
+            update_systemic_circadian(&mut state, &params, &niches, 40.0, 1.0);
+        }
+        assert!(
+            state.jet_lag_index > initial,
+            "jet_lag_index должен нарастать: {:.6} > {:.6}",
+            state.jet_lag_index,
+            initial
+        );
+    }
+
+    /// 5. Пустой срез → global_amplitude = 1.0.
+    #[test]
+    fn empty_niches() {
+        let mut state = SystemicCircadianState::default();
+        let params = SystemicCircadianParams::default();
+
+        update_systemic_circadian(&mut state, &params, &[], 40.0, 1.0);
+
+        assert!(
+            (state.global_amplitude - 1.0).abs() < 1e-5,
+            "При пустом срезе global_amplitude должен быть 1.0: {:.6}",
+            state.global_amplitude
+        );
+    }
+
+    /// 6. melatonin_efficacy не падает ниже 0.1 (clamp).
+    #[test]
+    fn melatonin_clamped_at_minimum() {
+        let mut state = SystemicCircadianState::default();
+        let params = SystemicCircadianParams::default();
+        let niches = vec![0.8];
+
+        // age = 200 → 1.0 - 200 × 0.008 = -0.6 → должно быть clamp до 0.1
+        update_systemic_circadian(&mut state, &params, &niches, 200.0, 1.0);
+
+        assert!(
+            state.melatonin_efficacy >= 0.1,
+            "melatonin_efficacy не должен падать ниже 0.1: {:.6}",
+            state.melatonin_efficacy
+        );
+        assert!(
+            (state.melatonin_efficacy - 0.1).abs() < 1e-5,
+            "При age=200 melatonin должен быть 0.1 (clamp): {:.6}",
+            state.melatonin_efficacy
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests_interspecies {
     use super::*;
