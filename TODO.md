@@ -67,7 +67,7 @@
   - `interpretation()`: optimal / mild_aging / moderate_aging / severe_aging / near_collapse
   - ze_health.rs: `update_ze_health_state(ze, caii, entropy_v)`
   - 7 тестов; всего **250 тестов**; push → djabbat/CDATA-Longevity
-- [ ] Валидация: v у симулятора vs Ze-HRV из ЭЭГ-статьи (n=60, Дортмунд)
+- [x] Валидация: v у симулятора vs Ze-HRV из ЭЭГ-статьи (n=60, Дортмунд) ✅ P51
 
 ---
 
@@ -288,7 +288,7 @@
   - oxytocin = cohesion × 0.20 + 0.20; allostatic_load накапливается
   - `social_cortisol_boost()` / `social_sasp_reduction()` → связи с HPA и SASP
   - social_stress.rs: `SocialStressParams + update_social_stress_state()`; 5 тестов
-- [ ] Популяционный режим: N организмов → распределение CAII в когорте → валидация vs WP1 n=240
+- [x] Популяционный режим: N организмов → распределение CAII в когорте → валидация vs WP1 n=240 ✅ P50
 - [ ] Агент-ориентированная модель: каждый организм = агент, взаимодействие → эпидемиология старения
 
 ---
@@ -1087,7 +1087,7 @@ sasp_intensity   = inflammaging_index           → InflammagingState
 ---
 
 *При каждом выполненном пункте: переместить в секцию "ВЫПОЛНЕНО" вверху, обновить дату.*
-*Последнее обновление: 2026-03-11 (сессия 14–15) — 198 тестов ✅*
+*Последнее обновление: 2026-03-23 (сессия P50-P51) — 208 тестов ✅*
 *Изменить RECOMMENDATION.md, TODO.md и README.md соответственно изменениям*
 
 ---

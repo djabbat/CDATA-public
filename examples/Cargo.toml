@@ -85,3 +85,11 @@ path = "src/bin/cdata_patient_sim.rs"
 [[bin]]
 name = "stochastic_analysis"
 path = "src/bin/stochastic_analysis.rs"
+
+[[bin]]
+name = "population_example"
+path = "src/bin/population_example.rs"
+
+[[bin]]
+name = "ze_validation_example"
+path = "src/bin/ze_validation_example.rs"
