@@ -18,7 +18,8 @@ Theory author: Jaba Tkemaladze (2005–2026)
 7. [Parameters and Calibration](#7-parameters-and-calibration)
 8. [Running the Simulation](#8-running-the-simulation)
 9. [Results and Interpretation](#9-results-and-interpretation)
-10. [References](#10-references)
+10. [Biological Hierarchy — 11 Levels](#10-biological-hierarchy--11-levels)
+11. [References](#11-references)
 
 ---
 
@@ -154,6 +155,19 @@ cell_dt/
 │               ├── microtubule.rs     # MT dynamics DII model, MicrotubuleState (P25)
 │               ├── golgi.rs           # Golgi fragmentation → CEP164 glycosylation (P26)
 │               ├── genetic.rs         # SNP-based DamageParams modifiers, GeneticProfile (P27)
+│               ├── atpenergy.rs       # ATP/ADP energy charge, proteasome modifier (P28)
+│               ├── chromatin.rs       # TAD integrity, heterochromatin, DNA accessibility (P29)
+│               ├── ift.rs             # Intraflagellar transport, cargo delivery (P30)
+│               ├── actin_ring.rs      # Contractile ring, cytokinesis fidelity (P31)
+│               ├── er_stress.rs       # ER stress, UPR, Ca²⁺ buffering (P32)
+│               ├── lysosome.rs        # pH, hydrolase activity, membrane permeability (P33)
+│               ├── peroxisome.rs      # Catalase, H₂O₂ clearance, β-oxidation (P34)
+│               ├── ribosome.rs        # Translation rate, RQC, aminoacyl-tRNA (P35)
+│               ├── extracellular_matrix.rs  # Collagen crosslinking, stiffness, integrin (P36)
+│               ├── vascular_niche.rs  # Angiogenesis, O₂ supply, growth factors (P37)
+│               ├── fibrosis.rs        # Myofibroblast activation, functional replacement (P38)
+│               ├── hpa_axis.rs        # Cortisol, HPA reactivity, chronic stress (P39)
+│               ├── metabolic_phenotype.rs  # BMI, adipokines, insulin sensitivity (P40)
 │               ├── inducers.rs        # M/D inducer system, O₂-detachment
 │               ├── development.rs     # Developmental stages and rates
 │               ├── tissues.rs         # 11 tissue types, TissueState
@@ -164,7 +178,7 @@ cell_dt/
         └── human_development_example.rs  # Full 100-year simulation
 ```
 
-**Tests: 268+** (human_development_module: 182+; full workspace: 268+)
+**Tests: 338+** (human_development_module: 254+; full workspace: 338+)
 **Rule: before every git push — update README.md to reflect implemented components.**
 
 ---
@@ -676,7 +690,55 @@ This is not accidental — neural stem cells have:
 
 ---
 
-## 10. References
+## 10. Biological Hierarchy — 11 Levels
+
+CDATA positions the **cell as the autonomous unit** — the central level (0).
+All other levels are either sub-structures (negative) or supra-cellular context (positive).
+
+```
++5  Noosphere     — interventions, evidence base, AI integration (AIM)
++4  Society       — social stress, loneliness → cortisol → ROS
++3  Organism      — OrganismState: frailty, cognitive, HPA axis, metabolism
++2  Organs        — OrganState: 11 organs, poly-organ failure criterion  [TODO]
++1  Tissues       — TissueState: 11 types, ECM, vascular niche, fibrosis [TODO]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 0  CELL ★        — CentriolarDamageState, GeneticProfile, fate switching  ← default tab
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-1  Organelles    — GolgiState, MitochondrialState, ER, Lysosome, Ribosome [TODO]
+-2  Cytoskeleton  — MicrotubuleState, IFTState, ActinRingState             [TODO]
+-3  Molecules     — ROSCascadeState, AppendageProteinState, ATPEnergy      [TODO]
+-4  Atoms         — ThermodynamicState (Arrhenius, entropy)
+-5  Ze field      — ZeHealthState (Ze Vector Theory, v*)
+```
+
+### Status
+
+| Level | Name | Status | Key Components |
+|-------|------|--------|---------------|
+| −5 | Ze field | ✅ | ZeHealthState |
+| −4 | Atoms | ✅ | ThermodynamicState |
+| −3 | Molecules | ✅ | ROSCascadeState, AppendageProteinState, ATPEnergyState, ChromatinState |
+| −2 | Cytoskeleton | ✅ | MicrotubuleState, IFTState, ActinRingState |
+| −1 | Organelles | ✅ | GolgiState, MitochondrialState, ERStressState, LysosomeState, PeroxisomeState, RibosomeState |
+| 0 | **Cell** ★ | ✅ | CentriolarDamageState, GeneticProfile |
+| +1 | Tissues | ✅ | TissueState, ExtracellularMatrixState, VascularNicheState, FibrosisState |
+| +2 | Organs | ❌ | OrganState TODO |
+| +3 | Organism | ✅ | OrganismState, HPAAxisState, MetabolicPhenotypeState |
+| +4 | Society | ❌ | SocialStressInput TODO |
+| +5 | Noosphere | ✅ partial | Interventions (P11); AIM integration TODO |
+
+### GUI Architecture
+
+The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
+- **11 tabs**, one per level (−5 to +5)
+- **Level 0 "Cell" tab opens by default** — the central CDATA unit
+- Each tab shows parameters and live metrics for its level
+- **7 languages**: EN / FR / ES / RU / ZH / AR / KA (Georgian)
+- Language persisted in `~/.config/cell_dt_gui/settings.toml`
+
+---
+
+## 11. References
 
 1. **Tkemaladze J., Chichinadze K.** Centriolar mechanisms of differentiation
    and replicative aging of higher animal cells. *Biochemistry (Moscow)*, 70(11),

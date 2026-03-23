@@ -1480,6 +1480,722 @@ impl Default for GolgiState {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ATPEnergyState — ECS-компонент (Уровень -3: молекулы — энергетика)
+//
+// Моделирует энергетический статус клетки через ATP/ADP-баланс.
+// Протеасома — АТФ-зависимый комплекс: при снижении energy_charge
+// её активность падает → убиквитинированные белки накапливаются.
+//
+// Связи:
+//   MitochondrialState.membrane_potential → atp_production_rate
+//   energy_charge < 0.7 → proteasome_activity_modifier < 1.0
+//   proteasome_activity_modifier → масштабирует ProteostasisState.proteasome_activity
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Энергетическое состояние клетки (Уровень -3: молекулы).
+///
+/// ATP/ADP-баланс определяет эффективность протеасомной деградации
+/// и синтез новых белков-придатков (CEP164, HSP70).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ATPEnergyState {
+    /// Отношение ATP/ADP [0..1].
+    ///
+    /// Молодая клетка: ~0.90 (высокий АТФ).
+    /// Старая/повреждённая: ~0.50–0.60 (митохондриальная недостаточность).
+    pub atp_adp_ratio: f32,
+
+    /// Энергетический заряд клетки: (ATP + 0.5×ADP) / (ATP+ADP+AMP) [0..1].
+    ///
+    /// Нормальное значение: 0.80–0.95 (Atkinson 1968).
+    /// При < 0.5: нарушение активного транспорта, синтеза белков, митоза.
+    pub energy_charge: f32,
+
+    /// Производная: модификатор активности протеасомы [0..1].
+    ///
+    /// = min(1.0, energy_charge / 0.70)
+    /// При energy_charge ≥ 0.70: proteasome работает нормально (=1.0).
+    /// При energy_charge = 0.35: proteasome работает вполовину силы (=0.50).
+    pub proteasome_activity_modifier: f32,
+}
+
+impl ATPEnergyState {
+    /// Молодая клетка с высоким АТФ.
+    pub fn pristine() -> Self {
+        Self {
+            atp_adp_ratio:               0.90,
+            energy_charge:               0.90,
+            proteasome_activity_modifier: 1.0,
+        }
+    }
+
+    /// Пересчитать производную метрику.
+    pub fn update_derived(&mut self) {
+        self.proteasome_activity_modifier =
+            (self.energy_charge / 0.70).min(1.0).max(0.0);
+    }
+}
+
+impl Default for ATPEnergyState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ChromatinState — ECS-компонент (Уровень -3: молекулы — 3D-геном)
+//
+// Моделирует целостность TAD-структуры (топологически ассоциированных доменов)
+// и состояние хроматина. Нарушение TAD → DDR-гены недоступны → медленная репарация.
+//
+// Связи:
+//   EpigeneticClockState.methylation_age → tad_integrity (деметилирование нарушает TAD)
+//   heterochromatin_fraction↓ → SAHF разрушение → SASP↑
+//   dna_accessibility↑ → DDRState.gamma_h2ax реагирует сильнее
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние хроматина стволовой ниши (Уровень -3: молекулы).
+///
+/// Отражает организацию 3D-генома: TAD-целостность и
+/// фракционирование хроматина (еухроматин vs гетерохроматин).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChromatinState {
+    /// Целостность TAD-структуры [0..1].
+    ///
+    /// TAD = топологически ассоциированные домены — единицы 3D-организации генома.
+    /// Нарушение при: деметилировании CTCF-сайтов, коге́зиновой дисфункции.
+    /// Снижается с methylation_age: tad_integrity ≈ 1 − methylation_age × 0.6.
+    pub tad_integrity: f32,
+
+    /// Фракция конститутивного гетерохроматина [0..1].
+    ///
+    /// Молодая клетка: ~0.30 (≈30% генома — гетерохроматин).
+    /// При старении: SAHF (Senescence-Associated Heterochromatin Foci)
+    /// разрушаются → гетерохроматин теряет компактность → frac↓.
+    pub heterochromatin_fraction: f32,
+
+    /// Доступность ДНК для DDR-машинерии [0..1].
+    ///
+    /// При потере гетерохроматина: дезорганизованный хроматин открывает
+    /// больше двунитевых разрывов → DDRState.gamma_h2ax растёт быстрее.
+    /// dna_accessibility = 1 − heterochromatin_fraction × 0.7 + tad_breakdown × 0.3
+    pub dna_accessibility: f32,
+}
+
+impl ChromatinState {
+    /// Молодая клетка с интактным 3D-геномом.
+    pub fn pristine() -> Self {
+        let het = 0.30_f32;
+        let tad = 1.0_f32;
+        Self {
+            tad_integrity:            tad,
+            heterochromatin_fraction: het,
+            dna_accessibility:        Self::calc_accessibility(tad, het),
+        }
+    }
+
+    fn calc_accessibility(tad: f32, het: f32) -> f32 {
+        (1.0 - het * 0.7 + (1.0 - tad) * 0.3).clamp(0.0, 1.0)
+    }
+
+    /// Пересчитать dna_accessibility из текущих полей.
+    pub fn update_derived(&mut self) {
+        self.dna_accessibility =
+            Self::calc_accessibility(self.tad_integrity, self.heterochromatin_fraction);
+    }
+}
+
+impl Default for ChromatinState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IFTState — ECS-компонент (Уровень -2: цитоскелет — внутрижгутиковый транспорт)
+//
+// Моделирует IFT (Intraflagellar Transport) — молекулярный транспорт
+// внутри первичной реснички.
+//
+// Связи:
+//   AppendageProteinState.cep164 → anterograde_velocity (IFT docking)
+//   GolgiState.vesicle_trafficking_rate → cargo_delivery (IFT грузы из Гольджи)
+//   cargo_delivery → ciliary_function (SMO, GLI транспортируются в реснички)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние внутрижгутикового транспорта (Уровень -2: цитоскелет).
+///
+/// IFT — молекулярная магистраль первичной реснички.
+/// Без IFT Shh-рецепторы (SMO, PTCH) не могут достичь кончика реснички.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IFTState {
+    /// Антероградная скорость IFT-B (основание → кончик реснички) [0..1].
+    ///
+    /// Зависит от CEP164 (IFT docking в переходной зоне) и
+    /// целостности субдистальных придатков (Ninein — якорение MT).
+    pub anterograde_velocity: f32,
+
+    /// Ретроградная скорость IFT-A (кончик → основание) [0..1].
+    ///
+    /// Более устойчива: нарушается позже при старении.
+    /// При ретроградном дефиците: аккумуляция грузов в кончике → bulge.
+    pub retrograde_velocity: f32,
+
+    /// Эффективность доставки сигнальных грузов (SMO, GLI) [0..1].
+    ///
+    /// = min(anterograde, retrograde) × vesicle_availability
+    /// Определяет реальный Shh-ответ (выше, чем только CEP164-присутствие).
+    pub cargo_delivery: f32,
+}
+
+impl IFTState {
+    /// Молодая клетка с активным IFT.
+    pub fn pristine() -> Self {
+        Self {
+            anterograde_velocity: 1.0,
+            retrograde_velocity:  1.0,
+            cargo_delivery:       1.0,
+        }
+    }
+
+    /// Обновить cargo_delivery из скоростей и доступности везикул Гольджи.
+    pub fn update_derived(&mut self, vesicle_availability: f32) {
+        self.cargo_delivery =
+            (self.anterograde_velocity.min(self.retrograde_velocity) * vesicle_availability)
+                .clamp(0.0, 1.0);
+    }
+}
+
+impl Default for IFTState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ActinRingState — ECS-компонент (Уровень -2: цитоскелет — цитокинез)
+//
+// Моделирует актиновое кольцо цитокинеза.
+// ROS окисляют актин → деполимеризация → неполный цитокинез
+// → бинуклеарность/анеуплоидия → усиление геномной нестабильности.
+//
+// Связи:
+//   ROSCascadeState.hydroxyl_radical → снижает actin_polymerization_rate
+//   contractile_ring_integrity < 0.5 → вероятность неполного цитокинеза↑
+//   неполный цитокинез → CentriolarDamageState.phosphorylation_dysregulation↑
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние актинового кольца цитокинеза (Уровень -2: цитоскелет).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActinRingState {
+    /// Целостность сократительного актинового кольца [0..1].
+    ///
+    /// 1.0 = нормальный цитокинез. < 0.5 = риск неполного разделения.
+    /// Снижается при: ROS-окислении актина, Cofilin-дисрегуляции.
+    pub contractile_ring_integrity: f32,
+
+    /// Скорость полимеризации актина [0..1].
+    ///
+    /// Снижается при: ROS (окисление Cys374 β-актина → ингибирование).
+    /// Нормальная: 1.0. При OH·=0.5: actin_poly ≈ 0.70.
+    pub actin_polymerization_rate: f32,
+
+    /// Вероятность неполного цитокинеза за шаг [0..1].
+    ///
+    /// = max(0, 1 − contractile_ring_integrity) × 0.3
+    /// Производная метрика для расчёта PLK4-дисрегуляции.
+    pub incomplete_cytokinesis_prob: f32,
+}
+
+impl ActinRingState {
+    pub fn pristine() -> Self {
+        Self {
+            contractile_ring_integrity:  1.0,
+            actin_polymerization_rate:   1.0,
+            incomplete_cytokinesis_prob: 0.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.incomplete_cytokinesis_prob =
+            ((1.0 - self.contractile_ring_integrity) * 0.3).clamp(0.0, 1.0);
+    }
+}
+
+impl Default for ActinRingState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ERStressState — ECS-компонент (Уровень -1: органоиды — ЭПС)
+//
+// Эндоплазматический ретикулум (ЭПС) — главный хаперон-содержащий органоид.
+// При перегрузке неправильно свёрнутыми белками → UPR (Unfolded Protein Response).
+// Хронический UPR → апоптоз через CHOP (DDIT3).
+//
+// Связи:
+//   ProteostasisState.proteasome_activity↓ → unfolded_protein_response↑
+//   GolgiState.fragmentation_index → chaperone_saturation (Гольджи-ЭПС связаны)
+//   unfolded_protein_response > 0.7 → AgingPhenotype::ERStress
+//   ca2_buffer_capacity↓ → MitochondrialState: Ca²⁺-перегрузка → mPTP открытие
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние ЭПС и UPR-ответа (Уровень -1: органоиды).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ERStressState {
+    /// Активация ответа на неправильно свёрнутые белки (UPR) [0..1].
+    ///
+    /// 0.0 = нет стресса (GRP78/BiP связывают все клиенты).
+    /// > 0.5 = умеренный стресс (IRE1/ATF6/PERK ветви активны).
+    /// > 0.8 = хронический стресс → CHOP → апоптоз.
+    pub unfolded_protein_response: f32,
+
+    /// Буферная ёмкость Ca²⁺ в ЭПС [0..1].
+    ///
+    /// ЭПС хранит ~70% внутриклеточного Ca²⁺ (Orrenius et al. 2003).
+    /// При UPR: Ca²⁺ выходит в цитозоль → активация кальпаинов, mPTP.
+    /// 1.0 = полная ёмкость. При upr > 0.5: capacity ≈ 1 − upr × 0.6.
+    pub ca2_buffer_capacity: f32,
+
+    /// Степень насыщения шаперонов GRP78/BiP [0..1].
+    ///
+    /// GRP78 — главный маркер UPR. При насыщении > 0.8: шаперонов не хватает
+    /// → новые белки деградируют по ERAD или агрегируют.
+    pub chaperone_saturation: f32,
+}
+
+impl ERStressState {
+    pub fn pristine() -> Self {
+        Self {
+            unfolded_protein_response: 0.0,
+            ca2_buffer_capacity:       1.0,
+            chaperone_saturation:      0.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.ca2_buffer_capacity =
+            (1.0 - self.unfolded_protein_response * 0.6).clamp(0.1, 1.0);
+    }
+}
+
+impl Default for ERStressState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LysosomeState — ECS-компонент (Уровень -1: органоиды — лизосомы)
+//
+// Лизосомы = ацидные органоиды деградации (pH 4.5–5.0).
+// При возрастном защелачивании → снижение гидролазной активности → аутофагия↓.
+//
+// Связи:
+//   AutophagyState.autophagy_flux ← hydrolase_activity (лизосомы финализируют аутофагию)
+//   ROSCascadeState.hydroxyl_radical → membrane_permeability↑ (LAMP2-повреждение)
+//   ph_level > 5.5 → cathepsin_leakage → апоптоз-сигналинг
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние лизосом стволовой ниши (Уровень -1: органоиды).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LysosomeState {
+    /// Внутрилизосомальный pH [4.5..7.0].
+    ///
+    /// Нормальный: 5.0. При старении: защелачивается до 5.5–6.5
+    /// (v-ATPase дефицит: Settembre et al. 2013).
+    /// При pH > 5.5: гидролазная активность резко падает.
+    pub ph_level: f32,
+
+    /// Активность кислых гидролаз (cathepsins B/D/L, β-hex) [0..1].
+    ///
+    /// = max(0, 1 − (ph_level − 5.0) × 0.40)
+    /// При pH=5.0: activity=1.0. При pH=6.5: activity≈0.40.
+    pub hydrolase_activity: f32,
+
+    /// Проницаемость лизосомной мембраны [0..1].
+    ///
+    /// 0.0 = интактная. Увеличивается при OH·-повреждении LAMP1/LAMP2.
+    /// При > 0.5: катепсины утекают в цитозоль → воспалительный каспаз-сигнал.
+    pub membrane_permeability: f32,
+}
+
+impl LysosomeState {
+    pub fn pristine() -> Self {
+        Self {
+            ph_level:             5.0,
+            hydrolase_activity:   1.0,
+            membrane_permeability: 0.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.hydrolase_activity =
+            (1.0 - (self.ph_level - 5.0) * 0.40).clamp(0.0, 1.0);
+    }
+}
+
+impl Default for LysosomeState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PeroxisomeState — ECS-компонент (Уровень -1: органоиды — пероксисомы)
+//
+// Пероксисомы — главный орган детоксикации H₂O₂ (каталаза).
+// Каталаза снижается с возрастом → больше H₂O₂ → Fenton-реакция усиливается.
+//
+// Связи:
+//   h2o2_clearance_rate → ROSCascadeState: снижает накопление hydrogen_peroxide
+//   fatty_acid_oxidation↓ → метаболический фенотип (липидный стресс)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние пероксисом стволовой ниши (Уровень -1: органоиды).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeroxisomeState {
+    /// Активность каталазы [0..1].
+    ///
+    /// Снижается с возрастом: −0.4%/год после 40 лет (Tian et al. 1998).
+    /// Молодая клетка: 1.0. В 80 лет: ~0.60.
+    pub catalase_activity: f32,
+
+    /// Скорость удаления H₂O₂ [0..1].
+    ///
+    /// = catalase_activity × 0.80 + gpx_activity × 0.20
+    /// (каталаза доминирует, GPx — вспомогательная система).
+    pub h2o2_clearance_rate: f32,
+
+    /// β-окисление жирных кислот [0..1].
+    ///
+    /// Снижается при пероксисомной дисфункции → липидный стресс,
+    /// накопление VLCFA (X-linked adrenoleukodystrophy модель).
+    pub fatty_acid_oxidation: f32,
+}
+
+impl PeroxisomeState {
+    pub fn pristine() -> Self {
+        Self {
+            catalase_activity:    1.0,
+            h2o2_clearance_rate:  0.80,
+            fatty_acid_oxidation: 1.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        // Упрощённо: GPx-вклад = 0.20 × catalase (коррелированы)
+        self.h2o2_clearance_rate = (self.catalase_activity * 0.80 + self.catalase_activity * 0.20)
+            .clamp(0.0, 1.0);
+    }
+}
+
+impl Default for PeroxisomeState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RibosomeState — ECS-компонент (Уровень -1: органоиды — рибосомы)
+//
+// Рибосомы — синтетический аппарат клетки.
+// Скорость трансляции определяет, как быстро восстанавливаются CEP164, HSP70.
+// RQC (Ribosome Quality Control) — удаляет незавершённые полипептиды.
+//
+// Связи:
+//   ATPEnergyState.energy_charge → translation_rate (ГТФ нужен для элонгации)
+//   translation_rate → repair_rate придатков (CEP164 синтезируется de novo)
+//   ribosome_quality↓ → больше аберрантных белков → ProteostasisState нагрузка↑
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние рибосомального аппарата (Уровень -1: органоиды).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RibosomeState {
+    /// Скорость трансляции (нормированная) [0..1].
+    ///
+    /// Снижается при: энергетическом дефиците (АТФ/ГТФ↓),
+    /// окислении рибосомальных белков, rRNA-повреждениях.
+    pub translation_rate: f32,
+
+    /// Качество рибосомального контроля (RQC) [0..1].
+    ///
+    /// RQC = Ltn1/NEMF/VCP комплекс: спасает застрявшие рибосомы.
+    /// При RQC < 0.5: незавершённые полипептиды → агрегаты ↑.
+    pub ribosome_quality: f32,
+
+    /// Доступность аминоацил-тРНК [0..1].
+    ///
+    /// Снижается при: дефиците аминокислот, mTOR-ингибировании.
+    /// CR (caloric restriction): aminoacyl_availability ≈ 0.75 → mTOR↓ →
+    /// замедление трансляции → меньше аберрантных белков.
+    pub aminoacyl_availability: f32,
+}
+
+impl RibosomeState {
+    pub fn pristine() -> Self {
+        Self {
+            translation_rate:        1.0,
+            ribosome_quality:        1.0,
+            aminoacyl_availability:  1.0,
+        }
+    }
+}
+
+impl Default for RibosomeState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ExtracellularMatrixState — ECS-компонент (Уровень +1: ткань — матрикс)
+//
+// Внеклеточный матрикс (ECM) — физический контекст стволовой ниши.
+// Жёсткий матрикс → YAP/TAZ-сигналинг → симметричные деления.
+//
+// Связи:
+//   ROS → collagen_crosslinking (LOX-фермент окисляется и инактивируется,
+//          а AGE накапливаются → перекрёстные связи)
+//   stiffness → integrin_signaling → влияет на тип деления
+//   fibrosis: collagen_deposition → functional_capacity ниши↓
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние внеклеточного матрикса (Уровень +1: ткань).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtracellularMatrixState {
+    /// Степень перекрёстного сшивания коллагена [0..1].
+    ///
+    /// 0.0 = молодой эластичный матрикс.
+    /// Растёт из-за: AGE (Advanced Glycation End-products) + LOX/LOXL.
+    pub collagen_crosslinking: f32,
+
+    /// Механическая жёсткость матрикса [0..1].
+    ///
+    /// = collagen_crosslinking × 0.70 + fibrosis_contribution × 0.30
+    /// Жёсткий матрикс (>0.6): YAP/TAZ ядерный → симметричные деления.
+    pub stiffness: f32,
+
+    /// Сила механосигналинга через интегрины [0..1].
+    ///
+    /// = stiffness × integrin_expression (интегрины αV/β3, α5/β1).
+    /// Снижается при потере интегрин-ECM взаимодействий в старой нише.
+    pub integrin_signaling: f32,
+}
+
+impl ExtracellularMatrixState {
+    pub fn pristine() -> Self {
+        Self {
+            collagen_crosslinking: 0.0,
+            stiffness:             0.0,
+            integrin_signaling:    0.5,  // базовый механосигналинг
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.stiffness = (self.collagen_crosslinking * 0.70).clamp(0.0, 1.0);
+        self.integrin_signaling = (self.stiffness * 0.60 + 0.2).clamp(0.0, 1.0);
+    }
+}
+
+impl Default for ExtracellularMatrixState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VascularNicheState — ECS-компонент (Уровень +1: ткань — сосудистая ниша)
+//
+// Сосудистая ниша определяет O₂-доступность и концентрацию факторов роста.
+// При старении: ангиогенез снижается → ниша гипоксическая → митохондрии
+// усиливают гликолиз → ROS↑ → CDATA-ускорение.
+//
+// Связи:
+//   oxygen_supply → o2_at_centriole (прямая замена или вклад в mito_shield)
+//   growth_factor_gradient → regeneration_tempo ниши
+//   angiogenesis_index: снижается с возрастом → oxygen_supply↓
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние сосудистой ниши (Уровень +1: ткань).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VascularNicheState {
+    /// Доступность O₂ из капилляров [0..1].
+    ///
+    /// Молодая ниша: 1.0 (нормоксия ~21% O₂).
+    /// Старая/патологическая: 0.3–0.5 (относительная гипоксия).
+    pub oxygen_supply: f32,
+
+    /// Концентрация нишевых факторов роста [0..1].
+    ///
+    /// HSC-ниша: SCF, THPO, CXCL12, Ang-1.
+    /// NSC-ниша: FGF-2, EGF, VEGF.
+    /// Снижается при редукции капиллярной сети.
+    pub growth_factor_gradient: f32,
+
+    /// Плотность капиллярной сети (ангиогенез) [0..1].
+    ///
+    /// Снижается с возрастом: VEGF↓, HIF-1α дисрегуляция.
+    /// Определяет oxygen_supply и growth_factor_gradient.
+    pub angiogenesis_index: f32,
+}
+
+impl VascularNicheState {
+    pub fn pristine() -> Self {
+        Self {
+            oxygen_supply:          1.0,
+            growth_factor_gradient: 1.0,
+            angiogenesis_index:     1.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.oxygen_supply          = self.angiogenesis_index.clamp(0.0, 1.0);
+        self.growth_factor_gradient = self.angiogenesis_index.clamp(0.0, 1.0);
+    }
+}
+
+impl Default for VascularNicheState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FibrosisState — ECS-компонент (Уровень +1: ткань — фиброз)
+//
+// Фиброз = замещение паренхимы фиброзной тканью.
+// SASP → TGF-β → активация миофибробластов → коллагеновые рубцы.
+// Замещённая ткань не может выполнять регенеративную функцию.
+//
+// Связи:
+//   InflammagingState.sasp_intensity → fibroblast_activation
+//   functional_replacement → functional_capacity ниши↓ (прямой эффект)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние фиброза ниши (Уровень +1: ткань).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FibrosisState {
+    /// Активность миофибробластов [0..1].
+    ///
+    /// Активируются TGF-β1/3 из SASP.
+    /// Производят коллаген I/III, фибронектин.
+    pub fibroblast_activation: f32,
+
+    /// Скорость отложения коллагена [0..1].
+    ///
+    /// = fibroblast_activation × 0.8
+    pub collagen_deposition_rate: f32,
+
+    /// Доля паренхимы, замещённой фиброзной тканью [0..1].
+    ///
+    /// Накапливается необратимо: integral of collagen_deposition_rate × dt.
+    /// Прямо снижает functional_capacity: fc × (1 − functional_replacement × 0.8).
+    pub functional_replacement: f32,
+}
+
+impl FibrosisState {
+    pub fn pristine() -> Self {
+        Self {
+            fibroblast_activation:    0.0,
+            collagen_deposition_rate: 0.0,
+            functional_replacement:   0.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.collagen_deposition_rate = (self.fibroblast_activation * 0.8).clamp(0.0, 1.0);
+    }
+
+    /// Вклад фиброза в снижение functional_capacity.
+    pub fn fc_penalty(&self) -> f32 {
+        (self.functional_replacement * 0.8).clamp(0.0, 1.0)
+    }
+}
+
+impl Default for FibrosisState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HPAAxisState — ECS-компонент (Уровень +3: организм — нейроэндокринная ось)
+//
+// Гипоталамо-гипофизарно-надпочечниковая ось (HPA).
+// Хронический стресс → кортизол↑ → иммуносупрессия + инсулинорезистентность.
+//
+// Связи:
+//   cortisol_level → InflammagingState: иммуносупрессия → нарушение SASP-клиренса
+//   hpa_reactivity × chronic_stress → ускоренное старение HSC (Flach et al. 2014)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние HPA-оси (Уровень +3: организм).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HPAAxisState {
+    /// Базальный уровень кортизола [0..1].
+    ///
+    /// 0.3 = норма (молодой взрослый).
+    /// > 0.6 = хроническая гиперкортизолемия → иммуносупрессия.
+    pub cortisol_level: f32,
+
+    /// Реактивность HPA-оси (CRH/ACTH чувствительность) [0..1].
+    ///
+    /// Снижается при хронической активации (истощение оси).
+    /// Слишком высокая → паника/тревога. Слишком низкая → адреналиновая недостаточность.
+    pub hpa_reactivity: f32,
+
+    /// Индекс хронического стресса [0..1].
+    ///
+    /// Интеграл кортизоль-нагрузки за время. Необратим как эпигенетический след.
+    pub chronic_stress_index: f32,
+}
+
+impl HPAAxisState {
+    pub fn pristine() -> Self {
+        Self {
+            cortisol_level:      0.30,
+            hpa_reactivity:      0.70,
+            chronic_stress_index: 0.0,
+        }
+    }
+}
+
+impl Default for HPAAxisState {
+    fn default() -> Self { Self::pristine() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MetabolicPhenotypeState — ECS-компонент (Уровень +3: организм — метаболизм)
+//
+// Метаболический фенотип: BMI/ожирение → адипокины → воспаление → CDATA.
+// Лептин/адипонектин дисбаланс → хроническая ИМТ-зависимая inflammaging.
+//
+// Связи:
+//   adipokine_level > 0.6 → InflammagingState: ros_boost↑, sasp↑
+//   insulin_sensitivity↓ → энергетический голод клетки → ATPEnergyState.energy_charge↓
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Метаболический фенотип организма (Уровень +3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetabolicPhenotypeState {
+    /// Нормированный ИМТ-индекс [0..1].
+    ///
+    /// 0.0 = норма (ИМТ 22). 1.0 = тяжёлое ожирение (ИМТ ≥ 40).
+    pub bmi_index: f32,
+
+    /// Уровень провоспалительных адипокинов (лептин, резистин) [0..1].
+    ///
+    /// = bmi_index × 0.70 + chronic_stress × 0.30
+    /// При > 0.5: inflammaging↑, SASP усиливается.
+    pub adipokine_level: f32,
+
+    /// Чувствительность к инсулину [0..1].
+    ///
+    /// 1.0 = норма. Снижается при ожирении (ИМТ > 0.4 → ≈0.50).
+    /// Инсулинорезистентность → клетки голодают → ATPEnergyState.energy_charge↓.
+    pub insulin_sensitivity: f32,
+}
+
+impl MetabolicPhenotypeState {
+    pub fn pristine() -> Self {
+        Self {
+            bmi_index:            0.0,
+            adipokine_level:      0.0,
+            insulin_sensitivity:  1.0,
+        }
+    }
+
+    pub fn update_derived(&mut self) {
+        self.adipokine_level = (self.bmi_index * 0.70).clamp(0.0, 1.0);
+        self.insulin_sensitivity = (1.0 - self.bmi_index * 0.60).clamp(0.1, 1.0);
+    }
+}
+
+impl Default for MetabolicPhenotypeState {
+    fn default() -> Self { Self::pristine() }
+}
+
 /// Тип ткани для специфики стволовых ниш.
 ///
 /// Объединяет биологические ниши (`Neural`, `Muscle`, …) и

@@ -47,6 +47,19 @@ use cell_dt_core::{
         MicrotubuleState,
         GolgiState,
         GeneticProfile,
+        ATPEnergyState,
+        ChromatinState,
+        IFTState,
+        ActinRingState,
+        ERStressState,
+        LysosomeState,
+        PeroxisomeState,
+        RibosomeState,
+        ExtracellularMatrixState,
+        VascularNicheState,
+        FibrosisState,
+        HPAAxisState,
+        MetabolicPhenotypeState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -69,6 +82,19 @@ pub mod ze_health;
 pub mod microtubule;
 pub mod golgi;
 pub mod genetic;
+pub mod atpenergy;
+pub mod chromatin;
+pub mod ift;
+pub mod actin_ring;
+pub mod er_stress;
+pub mod lysosome;
+pub mod peroxisome;
+pub mod ribosome;
+pub mod extracellular_matrix;
+pub mod vascular_niche;
+pub mod fibrosis;
+pub mod hpa_axis;
+pub mod metabolic_phenotype;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -86,6 +112,19 @@ pub use ze_health::update_ze_health_state;
 pub use microtubule::{MicrotubuleParams, update_microtubule_state};
 pub use golgi::{GolgiParams, update_golgi_state};
 pub use genetic::apply_genetic_modifiers;
+pub use atpenergy::{ATPEnergyParams, update_atp_energy_state};
+pub use chromatin::{ChromatinParams, update_chromatin_state};
+pub use ift::{IFTParams, update_ift_state};
+pub use actin_ring::{ActinRingParams, update_actin_ring_state};
+pub use er_stress::{ERStressParams, update_er_stress_state};
+pub use lysosome::{LysosomeParams, update_lysosome_state};
+pub use peroxisome::{PeroxisomeParams, update_peroxisome_state};
+pub use ribosome::{RibosomeParams, update_ribosome_state};
+pub use extracellular_matrix::{ECMParams, update_ecm_state};
+pub use vascular_niche::{VascularNicheParams, update_vascular_niche_state};
+pub use fibrosis::{FibrosisParams, update_fibrosis_state};
+pub use hpa_axis::{HPAAxisParams, update_hpa_axis_state};
+pub use metabolic_phenotype::{MetabolicParams, update_metabolic_phenotype_state, adipokine_ros_boost};
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)

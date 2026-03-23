@@ -2,8 +2,8 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: **2026-03-23** — P27 Генетическая гетерогенность (уровень 0)
-> Тестов: **268** ✅
+> Последнее обновление: **2026-03-23** — P28–P40: 13 новых компонентов (уровни -3…+3)
+> Тестов: **338** ✅
 
 ---
 
@@ -109,8 +109,14 @@
   - `ros_level_compat()` = H₂O₂ → синхронизируется в CentriolarDamageState
   - 7 тестов; всего **235 тестов**; push → djabbat/CDATA-Longevity
   - Треугольник замкнут: ThermodynamicState → ROSCascadeState → AppendageProteinState
-- [ ] ATP/ADP энергетический индекс → влияет на скорость деградации протеасомой
-- [ ] 3D-хроматин: TAD-структура → доступность ДНК для DDR (сейчас только methylation_age)
+- [x] **ATPEnergyState** ✅ — P28, 2026-03-23
+  - `atp_adp_ratio / energy_charge / proteasome_activity_modifier`
+  - ROS истощает АТФ, митохондрии восстанавливают
+  - atpenergy.rs: `ATPEnergyParams + update_atp_energy_state()`; 5 тестов
+- [x] **ChromatinState** ✅ — P29, 2026-03-23
+  - `tad_integrity / heterochromatin_fraction / dna_accessibility`
+  - methylation_age → TAD нарушаются; total_damage → SAHF разрушаются
+  - chromatin.rs: `ChromatinParams + update_chromatin_state()`; 5 тестов
 
 ---
 
@@ -127,8 +133,14 @@
   - Квазистационарное приближение: разделение временных масштабов (PTM-лет vs MT-секунд)
   - microtubule.rs: `MicrotubuleParams` + `update_microtubule_state()`
   - 7 тестов; всего **250 тестов**
-- [ ] IFTState { anterograde_velocity, retrograde_velocity, cargo_delivery } → ciliary_function
-- [ ] ActinRingState { contractile_ring_integrity } → влияет на цитокинез, тип деления
+- [x] **IFTState** ✅ — P30, 2026-03-23
+  - `anterograde_velocity / retrograde_velocity / cargo_delivery`
+  - CEP164 + Ninein → антероградный IFT; phospho → ретроградный IFT
+  - ift.rs: `IFTParams + update_ift_state()`; 6 тестов
+- [x] **ActinRingState** ✅ — P31, 2026-03-23
+  - `contractile_ring_integrity / actin_polymerization_rate / incomplete_cytokinesis_prob`
+  - OH· → деполимеризация актина; phospho → RHOA-путь
+  - actin_ring.rs: `ActinRingParams + update_actin_ring_state()`; 5 тестов
 - [ ] GammaRingComplex: γ-тубулин кольцевые комплексы → зависят от Ninein integrity
 
 ---
@@ -146,10 +158,22 @@
     → применяется в AppendageProteinState шаге (лаг 1 шаг)
   - Аутофагия снижает фрагментацию (Golgi-фагия): repair += autophagy × 0.15
   - 9 тестов; всего **259 тестов**; push → djabbat/CDATA-Longevity
-- [ ] ERStressState { unfolded_protein_response, ca2_buffer } → UPR-стресс → апоптоз vs адаптация
-- [ ] LysosomeState { ph_level, hydrolase_activity } → связь с AutophagyState (есть, но органеллы нет)
-- [ ] PeroxisomeState { catalase_activity, h2o2_clearance } → баланс ROS с митохондриями
-- [ ] RibosomeState { translation_rate, ribosome_quality } → скорость синтеза CEP164/HSP70
+- [x] **ERStressState** ✅ — P32, 2026-03-23
+  - `unfolded_protein_response / ca2_buffer_capacity / chaperone_saturation`
+  - агрегаты + протеасома↓ → UPR; хрон. UPR → CHOP → апоптоз
+  - er_stress.rs: `ERStressParams + update_er_stress_state()`; 6 тестов
+- [x] **LysosomeState** ✅ — P33, 2026-03-23
+  - `ph_level [4.5..7.0] / hydrolase_activity / membrane_permeability`
+  - ROS → защелачивание; OH· → LAMP1/LAMP2 повреждение
+  - lysosome.rs: `LysosomeParams + update_lysosome_state()`; 5 тестов
+- [x] **PeroxisomeState** ✅ — P34, 2026-03-23
+  - `catalase_activity / h2o2_clearance_rate / fatty_acid_oxidation`
+  - Tian et al. 1998: каталаза −0.4%/год после 40; связь с ROSCascadeState
+  - peroxisome.rs: `PeroxisomeParams + update_peroxisome_state()`; 6 тестов
+- [x] **RibosomeState** ✅ — P35, 2026-03-23
+  - `translation_rate / ribosome_quality / aminoacyl_availability`
+  - energy_charge × aminoacyl_avail → трансляция; агрегаты → RQC↓
+  - ribosome.rs: `RibosomeParams + update_ribosome_state()`; 6 тестов
 
 ---
 
@@ -177,9 +201,18 @@
 **Статус:** TissueState (11 типов) ✅, нет матрикса и сосудистой ниши
 **Направление:** межклеточный матрикс, сосудистые ниши
 
-- [ ] ExtracellularMatrixState { collagen_crosslinking, stiffness } → механосигналинг → ниша жёсткая → потеря асимметрии
-- [ ] VascularNicheState { oxygen_supply, growth_factor_gradient } → разные О₂ у поверхностных/глубоких ниш
-- [ ] FibrosisState { fibroblast_activation, collagen_deposition } → замещение паренхимы → функциональная ёмкость↓
+- [x] **ExtracellularMatrixState** ✅ — P36, 2026-03-23
+  - `collagen_crosslinking / stiffness / integrin_signaling`
+  - ROS + AGE → LOX → сшивание; жёсткость → YAP/TAZ → симм. деления
+  - extracellular_matrix.rs: `ECMParams + update_ecm_state()`; 5 тестов
+- [x] **VascularNicheState** ✅ — P37, 2026-03-23
+  - `oxygen_supply / growth_factor_gradient / angiogenesis_index`
+  - VEGF↓ после 50 + ROS → редукция капилляров → гипоксия
+  - vascular_niche.rs: `VascularNicheParams + update_vascular_niche_state()`; 6 тестов
+- [x] **FibrosisState** ✅ — P38, 2026-03-23
+  - `fibroblast_activation / collagen_deposition_rate / functional_replacement`
+  - SASP → TGF-β → миофибробласты; fc_penalty = replacement × 0.80
+  - fibrosis.rs: `FibrosisParams + update_fibrosis_state()`; 6 тестов
 - [ ] Нейромышечный синапс: отдельная субткань для Motor neurons ↔ Muscle
 
 ---
@@ -200,9 +233,15 @@
 **Статус:** OrganismState ✅ (frailty, cognitive, immune, muscle)
 **Направление:** нейроэндокринная регуляция, циркадные ритмы, метаболизм
 
-- [ ] HPA-ось: гипоталамус → кортизол → иммуносупрессия → CDATA-параметры
+- [x] **HPAAxisState** ✅ — P39, 2026-03-23
+  - `cortisol_level / hpa_reactivity / chronic_stress_index`
+  - стресс → кортизол↑ → иммуносупрессия; выгорание оси при хрон. активации
+  - hpa_axis.rs: `HPAAxisParams + update_hpa_axis_state()`; 5 тестов
+- [x] **MetabolicPhenotypeState** ✅ — P40, 2026-03-23
+  - `bmi_index / adipokine_level / insulin_sensitivity`
+  - ожирение → лептин/резистин → ROS↑; инсулинорезистентность → ATP↓
+  - metabolic_phenotype.rs: `MetabolicParams + update_metabolic_phenotype_state()`; 5 тестов
 - [ ] Ось GH/IGF-1 ✅ (реализована) → расширить: инсулин, лептин, грелин
-- [ ] Метаболический фенотип: BMI → adipokines → inflammaging
 - [ ] Циркадная синхронизация организма: нарушение ритмов → SASP↑ (есть CircadianState на уровне ниши → нужна системная версия)
 - [ ] CAII-индекс организма: среднее по всем тканям → первичная клиническая метрика
 
@@ -254,6 +293,7 @@
 - GUI (`cell_dt_gui`) должен иметь **11 вкладок** по уровням иерархии (-5 … +5).
 - Каждая вкладка содержит параметры компонентов своего уровня.
 - **Вкладка «Клетка» (уровень 0) — открывается по умолчанию** (центральный уровень).
+  → Клетка = автономная единица теории CDATA; все остальные уровни — контекст или субструктура.
 - Новый уровень иерархии → новая вкладка GUI.
 - Структура вкладок:
   | Вкладка | Уровень | Компоненты |
@@ -270,6 +310,24 @@
   | Социум | +4 | (будущий SocialStressInput) |
   | Ноосфера | +5 | Interventions: сенолитики, NAD+, CR |
 - TODO: реализовать GUI-вкладки в `cell_dt_gui/src/` (egui)
+
+## ПРАВИЛО: GUI — мультиязычность
+
+- GUI должен поддерживать **7 языков**: 6 официальных языков ООН + грузинский.
+  | Код | Язык       |
+  |-----|------------|
+  | en  | English    |
+  | fr  | Français   |
+  | es  | Español    |
+  | ru  | Русский    |
+  | zh  | 中文       |
+  | ar  | العربية    |
+  | ka  | ქართული    |
+- Выбор языка **сохраняется** после закрытия приложения (файл `~/.config/cell_dt_gui/settings.toml`).
+- При первом запуске: определять системный язык (locale), если поддерживается — использовать его;
+  иначе — английский по умолчанию.
+- Все метки параметров, названия вкладок, тултипы — локализованы.
+- TODO: реализовать I18n в `cell_dt_gui/src/i18n.rs` (статические &'static str таблицы per язык).
 
 ## ПРАВИЛО: научные статьи
 
