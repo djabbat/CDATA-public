@@ -168,6 +168,9 @@ cell_dt/
 │               ├── fibrosis.rs        # Myofibroblast activation, functional replacement (P38)
 │               ├── hpa_axis.rs        # Cortisol, HPA reactivity, chronic stress (P39)
 │               ├── metabolic_phenotype.rs  # BMI, adipokines, insulin sensitivity (P40)
+│               ├── organ.rs           # OrganState aggregation, poly-organ failure (P41)
+│               ├── clone_epigenetic.rs  # Clone-specific epigenetic drift, CHIP (P42)
+│               ├── fate_switching.rs  # Stochastic fate bias, Langevin noise (P43)
 │               ├── inducers.rs        # M/D inducer system, O₂-detachment
 │               ├── development.rs     # Developmental stages and rates
 │               ├── tissues.rs         # 11 tissue types, TissueState
@@ -178,7 +181,7 @@ cell_dt/
         └── human_development_example.rs  # Full 100-year simulation
 ```
 
-**Tests: 338+** (human_development_module: 254+; full workspace: 338+)
+**Tests: 357+** (human_development_module: 273+; full workspace: 357+)
 **Rule: before every git push — update README.md to reflect implemented components.**
 
 ---
@@ -699,10 +702,10 @@ All other levels are either sub-structures (negative) or supra-cellular context 
 +5  Noosphere     — interventions, evidence base, AI integration (AIM)
 +4  Society       — social stress, loneliness → cortisol → ROS
 +3  Organism      — OrganismState: frailty, cognitive, HPA axis, metabolism
-+2  Organs        — OrganState: 11 organs, poly-organ failure criterion  [TODO]
-+1  Tissues       — TissueState: 11 types, ECM, vascular niche, fibrosis [TODO]
++2  Organs        — OrganState: 11 organs, poly-organ failure criterion  ✅
++1  Tissues       — TissueState: 11 types, ECM, vascular niche, fibrosis ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 0  CELL ★        — CentriolarDamageState, GeneticProfile, fate switching  ← default tab
+ 0  CELL ★        — CentriolarDamageState, GeneticProfile, CloneEpigeneticState, FateSwitchingState  ← default tab
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -1  Organelles    — GolgiState, MitochondrialState, ER, Lysosome, Ribosome [TODO]
 -2  Cytoskeleton  — MicrotubuleState, IFTState, ActinRingState             [TODO]
@@ -720,9 +723,9 @@ All other levels are either sub-structures (negative) or supra-cellular context 
 | −3 | Molecules | ✅ | ROSCascadeState, AppendageProteinState, ATPEnergyState, ChromatinState |
 | −2 | Cytoskeleton | ✅ | MicrotubuleState, IFTState, ActinRingState |
 | −1 | Organelles | ✅ | GolgiState, MitochondrialState, ERStressState, LysosomeState, PeroxisomeState, RibosomeState |
-| 0 | **Cell** ★ | ✅ | CentriolarDamageState, GeneticProfile |
+| 0 | **Cell** ★ | ✅ | CentriolarDamageState, GeneticProfile, CloneEpigeneticState, FateSwitchingState |
 | +1 | Tissues | ✅ | TissueState, ExtracellularMatrixState, VascularNicheState, FibrosisState |
-| +2 | Organs | ❌ | OrganState TODO |
+| +2 | Organs | ✅ | OrganState (11 organs), poly-organ failure, cardiac oxygen delivery |
 | +3 | Organism | ✅ | OrganismState, HPAAxisState, MetabolicPhenotypeState |
 | +4 | Society | ❌ | SocialStressInput TODO |
 | +5 | Noosphere | ✅ partial | Interventions (P11); AIM integration TODO |
@@ -794,7 +797,7 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 УРОВЕНЬ +2  ОРГАНЫ
             Сердце, почки, печень, лёгкие, мозг.
             Каждый орган = специфический набор тканей.
-            CDATA: не моделируется. Нужен OrganState (11 типов).
+            CDATA: OrganState (11 типов) — реализован (P41). ✅
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ +1  ТКАНИ                              [в CDATA: TissueState]
             Skin, Hematopoietic, Neural, Muscle, IntestinalCrypt,
@@ -856,7 +859,7 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 | Органеллы | 10² – 10⁵ с | Скалярные метрики, 1 день = 1 шаг |
 | Клетка | 10⁴ – 10⁶ с | ECS-сущность — **текущий уровень** |
 | Ткань | 10⁶ – 10⁸ с | TissueState: пул, темп, сенесценция |
-| Орган | 10⁷ – 10⁸ с | Не реализован → нужен OrganState |
+| Орган | 10⁷ – 10⁸ с | OrganState ✅ — 11 органов, полиорганная недостаточность |
 | Организм | 10⁸ – 10⁹ с | OrganismState: frailty, смерть |
 | Социум | 10⁸ – 10¹⁰ с | social_stress → параметр ROS |
 | Ноосфера | 10⁹ – 10¹¹ с | Интервенции из базы знаний |
@@ -879,7 +882,7 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 ```
 1. GolgiState ✅ P26 — реализован 2026-03-23
 2. Genetic heterogeneity: SNP-профили → разные DamageParams на ниши
-3. OrganState: 11 органов — агрегация тканей → полиорганная недостаточность
+3. OrganState: 11 органов — агрегация тканей → полиорганная недостаточность ✅ P41
 4. LysosomeState: pH, hydrolase_activity — связь с AutophagyState
 5. SocialStressState: stress → cortisol → ROS → CDATA (надклеточный вход)
 ```

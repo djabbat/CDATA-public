@@ -2,8 +2,8 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: **2026-03-23** — P28–P40: 13 новых компонентов (уровни -3…+3)
-> Тестов: **338** ✅
+> Последнее обновление: **2026-03-23** — P41–P43: OrganState + эпигенетика + fate switching
+> Тестов: **357** ✅
 
 ---
 
@@ -191,9 +191,17 @@
   - 9 тестов: identity, APOE4↑, FOXO3a↓, LRRK2-phospho, субдистальная чувствительность,
     SOD2-ros_feedback, FOXO3a-repair↑, неизменяемые поля, APOE4>avg>APOE2
   - **268 тестов**; push → djabbat/CDATA-Longevity
-- [ ] Эпигенетическая память: клон-специфический methylation_age (сейчас одинаковый)
-- [ ] Пространственная организация: ниши не изолированы → диффузия SASP между соседями
-- [ ] Стохастическое переключение судьбы (fate switching): вероятностный выбор типа деления с ε-шумом
+- [x] **CloneEpigeneticState** ✅ — P42, 2026-03-23
+  - `clone_baseline / clone_drift_rate / clone_drift_accumulated`
+  - Пресеты: `neutral()` (0.003/год) / `tet2_chip()` (0.006/год, baseline=0.10)
+  - `effective_methylation_contribution()` → добавляется к EpigeneticClockState
+  - clone_epigenetic.rs: `CloneEpigeneticParams + update_clone_epigenetic_state()`; 6 тестов
+- [x] **FateSwitchingState** ✅ — P43, 2026-03-23
+  - `fate_bias [-1..+1] / switch_threshold / noise_accumulator / switch_count`
+  - Ланжевен-шум (Ито): fate_bias += N(0,σ) × √dt − recovery × bias × dt
+  - Повреждения снижают порог переключения: threshold × (1 − damage × 0.40)
+  - fate_switching.rs: `FateSwitchingParams + update_fate_switching_state(rng)`; 5 тестов
+- [ ] Пространственная диффузия SASP: ниши одного тканевого типа → диффузия sasp_intensity
 
 ---
 
@@ -218,14 +226,17 @@
 ---
 
 ### УРОВЕНЬ +2: Органы
-**Статус:** ❌ не реализован
-**Направление:** OrganState как агрегатор тканей
+**Статус:** ✅ реализовано — P41, 2026-03-23
 
-- [ ] OrganState { organ_type, functional_reserve, compensation_capacity, failure_threshold }
-- [ ] 11 органов: сердце, почки, печень, лёгкие, мозг, кишечник, кожа, кости, иммунная система, эндокринная система, мышцы
-- [ ] Органная компенсация: потеря одной ткани → другая усиливается (reserve capacity)
-- [ ] Полиорганная недостаточность как критерий смерти (альтернатива frailty≥0.95)
-- [ ] Связь органов: сердечный выброс → оксигенация → mitochondrial ROS во всех тканях
+- [x] **OrganState + OrganType** ✅ — P41, 2026-03-23
+  - `OrganType` enum (11 типов: Heart/Kidney/Liver/Lung/Brain/Intestine/Skin/Bone/ImmuneSystem/EndocrineSystem/Muscle)
+  - `OrganState { organ_type, functional_reserve, compensation_capacity, failure_threshold, is_failing, niche_count }`
+  - `update_organ_state(niches)`: mean(fc × (1−fibrosis)) + компенсаторная гипертрофия
+  - `check_poly_organ_failure(organs)`: возвращает Some(список) при ≥2 органах в failure
+  - `cardiac_oxygen_delivery()`: Heart.functional_reserve → оксигенация всех органов
+  - organ.rs; 8 тестов
+- [ ] Интеграция OrganState в lib.rs step() (pre-pass по тканям → агрегация в OrganState)
+- [ ] Полиорганная недостаточность как критерий смерти в OrganismState
 
 ---
 

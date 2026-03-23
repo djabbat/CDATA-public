@@ -60,6 +60,10 @@ use cell_dt_core::{
         FibrosisState,
         HPAAxisState,
         MetabolicPhenotypeState,
+        OrganType,
+        OrganState,
+        CloneEpigeneticState,
+        FateSwitchingState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -95,6 +99,9 @@ pub mod vascular_niche;
 pub mod fibrosis;
 pub mod hpa_axis;
 pub mod metabolic_phenotype;
+pub mod organ;
+pub mod clone_epigenetic;
+pub mod fate_switching;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -125,6 +132,9 @@ pub use vascular_niche::{VascularNicheParams, update_vascular_niche_state};
 pub use fibrosis::{FibrosisParams, update_fibrosis_state};
 pub use hpa_axis::{HPAAxisParams, update_hpa_axis_state};
 pub use metabolic_phenotype::{MetabolicParams, update_metabolic_phenotype_state, adipokine_ros_boost};
+pub use organ::{NicheOrganData, update_organ_state, check_poly_organ_failure, cardiac_oxygen_delivery};
+pub use clone_epigenetic::{CloneEpigeneticParams, update_clone_epigenetic_state};
+pub use fate_switching::{FateSwitchingParams, update_fate_switching_state};
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)

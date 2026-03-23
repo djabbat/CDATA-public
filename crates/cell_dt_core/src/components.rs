@@ -3750,3 +3750,256 @@ mod morphogen_tests {
             bmp_damaged, bmp_healthy);
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OrganType + OrganState — ECS-компонент (Уровень +2: органы)
+//
+// Моделирует функциональный резерв отдельного органа как агрегатор
+// стволовых ниш одного тканевого типа.
+//
+// Полиорганная недостаточность (≥2 органов в failure) → дополнительный
+// критерий смерти организма (альтернатива frailty ≥ 0.95).
+//
+// Связь органов:
+//   Heart: cardiac_output → oxygen_delivery ко всем органам
+//   Kidney: filtration → clearance токсинов/SASP из крови
+//   Liver: detox → снижение systemic_ros
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Тип органа (11 органов в модели).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrganType {
+    Heart,
+    Kidney,
+    Liver,
+    Lung,
+    Brain,
+    Intestine,
+    Skin,
+    Bone,
+    ImmuneSystem,
+    EndocrineSystem,
+    Muscle,
+}
+
+impl OrganType {
+    /// Порог недостаточности (functional_reserve < threshold → орган в failure).
+    pub fn failure_threshold(self) -> f32 {
+        match self {
+            OrganType::Heart         => 0.20,  // сердечная недостаточность — фатальна рано
+            OrganType::Brain         => 0.15,  // нейродегенерация — длительная, но фатальна
+            OrganType::Kidney        => 0.15,  // ХПН — диализ компенсирует долго
+            OrganType::Lung          => 0.20,
+            OrganType::Liver         => 0.15,  // большой резерв паренхимы
+            OrganType::Intestine     => 0.25,
+            OrganType::Skin          => 0.10,  // кожа не фатальна как орган
+            OrganType::Bone          => 0.20,
+            OrganType::ImmuneSystem  => 0.20,
+            OrganType::EndocrineSystem => 0.25,
+            OrganType::Muscle        => 0.15,
+        }
+    }
+
+    /// Компенсаторная ёмкость — насколько другие органы могут взять функцию.
+    pub fn compensation_capacity(self) -> f32 {
+        match self {
+            OrganType::Liver    => 0.60,  // регенерирует, другая доля берёт функцию
+            OrganType::Kidney   => 0.40,  // одна почка = 70% функции
+            OrganType::Lung     => 0.35,  // лёгочная гипертензия компенсирует частично
+            OrganType::Skin     => 0.80,  // слизистые компенсируют
+            OrganType::Bone     => 0.50,
+            OrganType::Muscle   => 0.40,
+            OrganType::ImmuneSystem  => 0.30,
+            OrganType::EndocrineSystem => 0.50,
+            OrganType::Heart    => 0.10,  // сердце не заменяется
+            OrganType::Brain    => 0.05,
+            OrganType::Intestine => 0.30,
+        }
+    }
+}
+
+/// Состояние органа (Уровень +2).
+///
+/// Агрегирует функциональный резерв всех стволовых ниш данного органа.
+/// Компенсаторная гипертрофия поддерживает функцию при потере части ниш.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganState {
+    /// Тип органа.
+    pub organ_type: OrganType,
+
+    /// Функциональный резерв [0..1].
+    ///
+    /// = mean(functional_capacity ниш) × (1 − fibrosis_penalty)
+    /// При резерве ниже failure_threshold → орган в состоянии недостаточности.
+    pub functional_reserve: f32,
+
+    /// Компенсаторная ёмкость: доля функции, которую берут соседние органы [0..1].
+    ///
+    /// Задаётся константой OrganType::compensation_capacity().
+    /// При частичной недостаточности: effective_reserve += compensation_factor × deficit.
+    pub compensation_capacity: f32,
+
+    /// Порог недостаточности [0..1].
+    pub failure_threshold: f32,
+
+    /// Орган в состоянии недостаточности.
+    pub is_failing: bool,
+
+    /// Количество ниш, внёсших данные в последнем агрегировании.
+    pub niche_count: u32,
+}
+
+impl OrganState {
+    /// Создать новый OrganState для данного типа органа.
+    pub fn new(organ_type: OrganType) -> Self {
+        Self {
+            organ_type,
+            functional_reserve:    1.0,
+            compensation_capacity: organ_type.compensation_capacity(),
+            failure_threshold:     organ_type.failure_threshold(),
+            is_failing:            false,
+            niche_count:           0,
+        }
+    }
+
+    /// Обновить статус недостаточности.
+    pub fn update_failure_status(&mut self) {
+        self.is_failing = self.functional_reserve < self.failure_threshold;
+    }
+}
+
+impl Default for OrganState {
+    fn default() -> Self { Self::new(OrganType::Muscle) }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CloneEpigeneticState — ECS-компонент (Уровень 0: клетка — эпигенетическая память)
+//
+// Клон-специфический эпигенетический дрейф:
+// разные клоны имеют разные базовые линии methylation_age.
+// CHIP-клоны с TET2/DNMT3A мутациями: ускоренный дрейф.
+//
+// Связи:
+//   EpigeneticClockState.methylation_age += clone_drift × dt каждый шаг
+//   ChromatinState: methylation_age → tad_integrity
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Клон-специфическая эпигенетическая память (Уровень 0: клетка).
+///
+/// Каждый клон (clone_id) начинает с разной базовой линии methylation_age
+/// и имеет уникальный темп дрейфа.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloneEpigeneticState {
+    /// Базовая линия methylation_age для данного клона [0..1].
+    ///
+    /// Наследуется при делении + небольшой шум (эпигенетическая гетерогенность).
+    /// TET2-мутантные клоны: baseline ≈ 0.15 (гипометилирование).
+    pub clone_baseline: f32,
+
+    /// Клон-специфический темп эпигенетического дрейфа [/год].
+    ///
+    /// Нейтральный клон: drift ≈ 0.003/год.
+    /// TET2-мут.: drift ≈ 0.006/год (ускоренный дрейф у CHIP-клонов).
+    pub clone_drift_rate: f32,
+
+    /// Накопленный клон-специфический дрейф [0..1].
+    ///
+    /// Добавляется к EpigeneticClockState.methylation_age:
+    ///   effective_age = epi_clock + clone_drift_accumulated
+    pub clone_drift_accumulated: f32,
+}
+
+impl CloneEpigeneticState {
+    /// Нейтральный клон (средний дрейф).
+    pub fn neutral() -> Self {
+        Self {
+            clone_baseline:           0.0,
+            clone_drift_rate:         0.003,
+            clone_drift_accumulated:  0.0,
+        }
+    }
+
+    /// TET2-мутантный CHIP-клон (ускоренное деметилирование).
+    pub fn tet2_chip() -> Self {
+        Self {
+            clone_baseline:           0.10,
+            clone_drift_rate:         0.006,
+            clone_drift_accumulated:  0.0,
+        }
+    }
+
+    /// Эффективный вклад в methylation_age.
+    pub fn effective_methylation_contribution(&self) -> f32 {
+        (self.clone_baseline + self.clone_drift_accumulated).clamp(0.0, 1.0)
+    }
+}
+
+impl Default for CloneEpigeneticState {
+    fn default() -> Self { Self::neutral() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FateSwitchingState — ECS-компонент (Уровень 0: клетка — стохастика судьбы)
+//
+// Стохастическое переключение типа деления с ε-шумом.
+// Даже при идентичных damage_params разные ниши могут выбрать разные судьбы.
+// Моделирует biological noise в решениях самообновление/дифференцировка.
+//
+// Связи:
+//   noise_scale из DamageParams → пертурбация fate_bias
+//   fate_bias > switch_threshold → клетка «склоняется» к симм. делению
+//   Интегрируется с asymmetric_division_module через DivisionExhaustionState
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние стохастического переключения судьбы (Уровень 0: клетка).
+///
+/// Каждая ниша имеет непрерывно флуктуирующий fate_bias.
+/// При достижении порога (switch_threshold) — смещение типа деления.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FateSwitchingState {
+    /// Текущее смещение судьбы [-1..+1].
+    ///
+    /// > 0 : смещение к самообновлению (симметричному экспансионному делению)
+    /// < 0 : смещение к дифференцировке (истощению пула)
+    /// 0   : нейтральное состояние
+    pub fate_bias: f32,
+
+    /// Порог переключения [0..1].
+    ///
+    /// При |fate_bias| > switch_threshold — тип деления смещается.
+    /// Нормальное значение: 0.5. При повреждениях: порог снижается.
+    pub switch_threshold: f32,
+
+    /// Накопленный шум за текущий шаг (Ланжевен).
+    ///
+    /// Обновляется каждый шаг: noise_accumulator += N(0, σ) × sqrt(dt).
+    pub noise_accumulator: f32,
+
+    /// Количество переключений судьбы за всё время жизни ниши.
+    pub switch_count: u32,
+}
+
+impl FateSwitchingState {
+    pub fn neutral() -> Self {
+        Self {
+            fate_bias:         0.0,
+            switch_threshold:  0.5,
+            noise_accumulator: 0.0,
+            switch_count:      0,
+        }
+    }
+
+    /// Активно ли переключение (|fate_bias| превышает порог).
+    pub fn is_switching(&self) -> bool {
+        self.fate_bias.abs() > self.switch_threshold
+    }
+
+    /// Смещение к истощению (fate_bias < -threshold).
+    pub fn is_exhaustion_biased(&self) -> bool {
+        self.fate_bias < -self.switch_threshold
+    }
+}
+
+impl Default for FateSwitchingState {
+    fn default() -> Self { Self::neutral() }
+}
