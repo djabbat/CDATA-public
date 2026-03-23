@@ -102,6 +102,12 @@ pub mod metabolic_phenotype;
 pub mod organ;
 pub mod clone_epigenetic;
 pub mod fate_switching;
+pub mod gamma_ring;
+pub mod sasp_diffusion;
+pub mod nmj;
+pub mod social_stress;
+pub mod organ_integration;
+pub mod caii_organism;
 
 pub use inducers::{
     HumanMorphogeneticLevel, HumanInducers,
@@ -135,6 +141,12 @@ pub use metabolic_phenotype::{MetabolicParams, update_metabolic_phenotype_state,
 pub use organ::{NicheOrganData, update_organ_state, check_poly_organ_failure, cardiac_oxygen_delivery};
 pub use clone_epigenetic::{CloneEpigeneticParams, update_clone_epigenetic_state};
 pub use fate_switching::{FateSwitchingParams, update_fate_switching_state};
+pub use gamma_ring::{GammaRingParams, update_gamma_ring_state};
+pub use sasp_diffusion::{SaspDiffusionParams, update_sasp_diffusion_state, sasp_bystander_effect};
+pub use nmj::{NMJParams, update_nmj_state, nmj_muscle_penalty};
+pub use social_stress::{SocialStressParams, update_social_stress_state, social_cortisol_boost, social_sasp_reduction};
+pub use organ_integration::{NicheCapacityData, aggregate_niches_by_organ, update_organ_states_in_world, tissue_to_organ};
+pub use caii_organism::compute_organism_caii;
 
 // ---------------------------------------------------------------------------
 // Этапы развития (15 стадий — от зиготы до старческого возраста)
@@ -551,6 +563,21 @@ impl HumanDevelopmentModule {
         let age_f = self.organ_state.age_years as f32;
         self.organ_state.igf1_level =
             (1.0 - (age_f - 20.0).max(0.0) * 0.01).clamp(0.3, 1.0);
+
+        // P48: CAII-индекс организма — среднее CAII по всем живым нишам
+        // Источник: AppendageProteinState.caii (если есть), иначе 1.0 для здоровых ниш
+        {
+            use cell_dt_core::components::AppendageProteinState;
+            let niches_caii: Vec<f32> = world
+                .query::<(&HumanDevelopmentComponent, &AppendageProteinState)>()
+                .iter()
+                .filter(|(_, (comp, _))| comp.is_alive)
+                .map(|(_, (_, app))| app.caii)
+                .collect();
+            let (caii_org, bio_age) = caii_organism::compute_organism_caii(&niches_caii, age_f);
+            self.organ_state.caii_organism = caii_org;
+            self.organ_state.biological_age = bio_age;
+        }
 
         // ── Критерии смерти организма ──────────────────────────────────────
         let blood_pool = if blood_count > 0 {
@@ -1947,6 +1974,9 @@ impl SimulationModule for HumanDevelopmentModule {
             "organism_death_cause":    self.death_cause.unwrap_or(""),
             "organism_igf1_level":     self.organ_state.igf1_level,
             "organism_systemic_sasp":  self.organ_state.systemic_sasp,
+            // P48: CAII-индекс организма и биологический возраст
+            "organism_caii":           self.organ_state.caii_organism,
+            "organism_biological_age": self.organ_state.biological_age,
             // P13: Морфогенные поля (агрегированные по всем нишам)
             // Вычисляются в update_tissue_state() как Hill-нелинейные функции от ciliary_function
             "morphogen_gli_activation":   self.morphogen_aggregates.gli_activation_mean,

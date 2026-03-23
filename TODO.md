@@ -2,8 +2,8 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: **2026-03-23** — P41–P43: OrganState + эпигенетика + fate switching
-> Тестов: **357** ✅
+> Последнее обновление: **2026-03-23** — P44–P49: GammaRing + SaspDiffusion + NMJ + OrganIntegration + CAII + SocialStress
+> Тестов: **388** ✅
 
 ---
 
@@ -201,7 +201,16 @@
   - Ланжевен-шум (Ито): fate_bias += N(0,σ) × √dt − recovery × bias × dt
   - Повреждения снижают порог переключения: threshold × (1 − damage × 0.40)
   - fate_switching.rs: `FateSwitchingParams + update_fate_switching_state(rng)`; 5 тестов
-- [ ] Пространственная диффузия SASP: ниши одного тканевого типа → диффузия sasp_intensity
+- [x] **SaspDiffusionState** ✅ — P45, 2026-03-23
+  - `local_sasp / received_sasp / effective_sasp / diffusion_radius`
+  - `update_sasp_diffusion_state(neighbor_sasps)`: mean соседей × коэфф диффузии
+  - `sasp_bystander_effect()`: ROS-буст при effective > threshold
+  - sasp_diffusion.rs: `SaspDiffusionParams`; 5 тестов
+- [x] **GammaRingState** ✅ — P44, 2026-03-23
+  - `nucleation_efficiency / ring_integrity / pericentriolar_density`
+  - Ninein-coupling: density = ninein × 0.70 + (1−ninein) × 0.20
+  - OH·-повреждение + PCM-репарация ring_integrity
+  - gamma_ring.rs: `GammaRingParams + update_gamma_ring_state()`; 6 тестов
 
 ---
 
@@ -221,7 +230,11 @@
   - `fibroblast_activation / collagen_deposition_rate / functional_replacement`
   - SASP → TGF-β → миофибробласты; fc_penalty = replacement × 0.80
   - fibrosis.rs: `FibrosisParams + update_fibrosis_state()`; 6 тестов
-- [ ] Нейромышечный синапс: отдельная субткань для Motor neurons ↔ Muscle
+- [x] **NeuromuscularJunctionState** ✅ — P46, 2026-03-23
+  - `ach_receptor_density / synaptic_transmission / denervation_index / reinnervation_capacity`
+  - BDNF-поддержка реиннервации; ROS → денервация; aggregates → АХ↓
+  - `nmj_muscle_penalty()`: 0.80 при synaptic < 0.50
+  - nmj.rs: `NMJParams + update_nmj_state()`; 5 тестов
 
 ---
 
@@ -235,8 +248,12 @@
   - `check_poly_organ_failure(organs)`: возвращает Some(список) при ≥2 органах в failure
   - `cardiac_oxygen_delivery()`: Heart.functional_reserve → оксигенация всех органов
   - organ.rs; 8 тестов
-- [ ] Интеграция OrganState в lib.rs step() (pre-pass по тканям → агрегация в OrganState)
-- [ ] Полиорганная недостаточность как критерий смерти в OrganismState
+- [x] Интеграция OrganState в ECS — P47, 2026-03-23
+  - `organ_integration.rs`: `NicheCapacityData + aggregate_niches_by_organ() + update_organ_states_in_world()`
+  - `tissue_to_organ()`: маппинг TissueType → OrganType (10 типов)
+  - Полиорганная недостаточность: ≥2 failing → OrganismState.is_alive = false
+  - 4 теста: single_failure_no_death, two_failures_death, update_from_niches, healthy_no_failure
+- [x] Полиорганная недостаточность как критерий смерти в OrganismState ✅ — P47
 
 ---
 
@@ -254,7 +271,11 @@
   - metabolic_phenotype.rs: `MetabolicParams + update_metabolic_phenotype_state()`; 5 тестов
 - [ ] Ось GH/IGF-1 ✅ (реализована) → расширить: инсулин, лептин, грелин
 - [ ] Циркадная синхронизация организма: нарушение ритмов → SASP↑ (есть CircadianState на уровне ниши → нужна системная версия)
-- [ ] CAII-индекс организма: среднее по всем тканям → первичная клиническая метрика
+- [x] **CAII-индекс организма** ✅ — P48, 2026-03-23
+  - `OrganismState.caii_organism / biological_age` добавлены
+  - `compute_organism_caii(niches_caii, age)`: mean CAII + bio_age = age × (1 + (1−CAII) × 0.50)
+  - Интегрировано в `update_organism_state()` через AppendageProteinState query
+  - caii_organism.rs; 4 теста: perfect/zero/mid CAII + empty niches
 
 ---
 
@@ -262,9 +283,11 @@
 **Статус:** ❌ нет
 **Направление:** social_stress как входной параметр → биологические эффекты
 
-- [ ] SocialStressInput { loneliness_index, socioeconomic_stress, social_cohesion }
-  - loneliness → кортизол↑ → ROS↑ → CDATA-ускорение
-  - social_cohesion → oxytocin↑ → воспаление↓ → longevity
+- [x] **SocialStressState** ✅ — P49, 2026-03-23
+  - `loneliness_index / socioeconomic_stress / social_cohesion / oxytocin_level / allostatic_load`
+  - oxytocin = cohesion × 0.20 + 0.20; allostatic_load накапливается
+  - `social_cortisol_boost()` / `social_sasp_reduction()` → связи с HPA и SASP
+  - social_stress.rs: `SocialStressParams + update_social_stress_state()`; 5 тестов
 - [ ] Популяционный режим: N организмов → распределение CAII в когорте → валидация vs WP1 n=240
 - [ ] Агент-ориентированная модель: каждый организм = агент, взаимодействие → эпидемиология старения
 

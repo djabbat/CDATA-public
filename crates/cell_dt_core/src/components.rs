@@ -2428,6 +2428,11 @@ pub struct OrganismState {
     /// Уровень системного SASP [0..1] — среднее sasp_output всех ниш.
     /// Паракринный сигнал: ускоряет повреждения соседних тканей.
     pub systemic_sasp: f32,
+    /// CAII-индекс организма [0..1] — среднее CAII по всем нишам.
+    /// 1.0 = все ниши здоровы, 0.0 = полное повреждение центриолей.
+    pub caii_organism: f32,
+    /// Биологический возраст [лет] = хронологический × (1 + (1 − CAII) × 0.50).
+    pub biological_age: f32,
 }
 
 impl OrganismState {
@@ -2443,6 +2448,8 @@ impl OrganismState {
             is_alive: true,
             igf1_level: 1.0,
             systemic_sasp: 0.0,
+            caii_organism: 1.0,
+            biological_age: 0.0,
         }
     }
 }
@@ -4002,4 +4009,130 @@ impl FateSwitchingState {
 
 impl Default for FateSwitchingState {
     fn default() -> Self { Self::neutral() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GammaRingState — ECS-компонент (Уровень -3: γ-TuRC нуклеация)
+//
+// γ-тубулиновые кольцевые комплексы (γ-TuRC) нуклеируют микротрубочки
+// на центриолях. Ninein-integrity из AppendageProteinState определяет
+// плотность γ-TuRC на субдистальных придатках.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние γ-тубулиновых кольцевых комплексов (γ-TuRC) на центриолях.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GammaRingState {
+    /// Эффективность нуклеации микротрубочек [0..1].
+    pub nucleation_efficiency: f32,
+    /// Целостность γ-TuRC кольца [0..1].
+    pub ring_integrity: f32,
+    /// Перицентриолярная плотность γ-TuRC [0..1].
+    pub pericentriolar_density: f32,
+}
+
+impl Default for GammaRingState {
+    fn default() -> Self {
+        Self {
+            nucleation_efficiency: 0.81, // 0.90 × 0.90
+            ring_integrity: 0.90,
+            pericentriolar_density: 0.90,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SaspDiffusionState — ECS-компонент (Уровень 0: пространственная диффузия SASP)
+//
+// Паракринный SASP-сигнал от сенесцентных клеток распространяется
+// на соседние ниши. Эффективный SASP = local + diffused from neighbors.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние пространственной диффузии SASP в нише.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaspDiffusionState {
+    /// Локальный SASP, генерируемый данной нишей [0..1].
+    pub local_sasp: f32,
+    /// SASP, полученный от соседних ниш через диффузию [0..1].
+    pub received_sasp: f32,
+    /// Эффективный SASP = local + received [0..1].
+    pub effective_sasp: f32,
+    /// Радиус диффузии (количество соседних ниш) [единиц].
+    pub diffusion_radius: u32,
+}
+
+impl Default for SaspDiffusionState {
+    fn default() -> Self {
+        Self {
+            local_sasp: 0.0,
+            received_sasp: 0.0,
+            effective_sasp: 0.0,
+            diffusion_radius: 3,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NeuromuscularJunctionState — ECS-компонент (Уровень +1: нейромышечный синапс)
+//
+// Деградация нервно-мышечного соединения при старении:
+// денервация → снижение плотности АХ-рецепторов → нарушение нейромышечной
+// передачи → саркопения.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние нервно-мышечного соединения (НМС).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeuromuscularJunctionState {
+    /// Плотность АХ-рецепторов [0..1].
+    pub ach_receptor_density: f32,
+    /// Эффективность синаптической передачи [0..1].
+    pub synaptic_transmission: f32,
+    /// Индекс денервации [0..1]; 0 = норма, 1 = полная денервация.
+    pub denervation_index: f32,
+    /// Способность к реиннервации [0..1].
+    pub reinnervation_capacity: f32,
+}
+
+impl Default for NeuromuscularJunctionState {
+    fn default() -> Self {
+        Self {
+            ach_receptor_density: 1.0,
+            synaptic_transmission: 1.0,
+            denervation_index: 0.0,
+            reinnervation_capacity: 1.0,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SocialStressState — ECS-компонент (Уровень +4: социальный стресс)
+//
+// Социальная изоляция и социально-экономический стресс ускоряют
+// биологическое старение через ось HPA и воспалительные пути.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние социального стресса и его влияние на биологическое старение.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SocialStressState {
+    /// Индекс одиночества [0..1]; 0 = полная социальная включённость.
+    pub loneliness_index: f32,
+    /// Социально-экономический стресс [0..1].
+    pub socioeconomic_stress: f32,
+    /// Социальная сплочённость [0..1]; = 1 − loneliness_index.
+    pub social_cohesion: f32,
+    /// Уровень окситоцина [0..1].
+    pub oxytocin_level: f32,
+    /// Аллостатическая нагрузка [0..1].
+    pub allostatic_load: f32,
+}
+
+impl Default for SocialStressState {
+    fn default() -> Self {
+        Self {
+            loneliness_index: 0.0,
+            socioeconomic_stress: 0.0,
+            social_cohesion: 1.0,
+            oxytocin_level: 0.40,
+            allostatic_load: 0.0,
+        }
+    }
 }
