@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // noise_scale=0.20 → σ_year ≈ 0.20×√(1/365.25)×√(365.25) = 0.20 per year
             // → смерти разбросаны по ±20 лет вокруг средней продолжительности жизни.
             noise_scale:                0.20,
+            enable_inducer_system:      true,
         }
     )))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;

@@ -4136,3 +4136,784 @@ impl Default for SocialStressState {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P52 — SenescenceAccumulationState
+// Накопление сенесцентных клеток в нише и связанный SASP-сигнал.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние накопления сенесцентных клеток в стволовой нише.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SenescenceAccumulationState {
+    /// Доля сенесцентных клеток в нише [0..1].
+    pub senescent_fraction: f32,
+    /// SASP-сигнал, производимый нишей [0..1].
+    pub sasp_output: f32,
+    /// Регенеративная ёмкость ниши — угнетение сенесцентными клетками [0..1].
+    pub niche_regenerative_capacity: f32,
+    /// Кумулятивная нагрузка сенесцентными клетками [0..∞, clamp→1].
+    pub cumulative_burden: f32,
+}
+
+impl Default for SenescenceAccumulationState {
+    fn default() -> Self {
+        Self {
+            senescent_fraction: 0.01,
+            sasp_output: 0.0,
+            niche_regenerative_capacity: 1.0,
+            cumulative_burden: 0.0,
+        }
+    }
+}
+
+/// Параметры накопления сенесцентных клеток.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SenescenceAccumulationParams {
+    /// Базовый темп накопления за шаг.
+    pub attrition_rate: f32,
+    /// Эффективность замены сенесцентных клеток [0..1].
+    pub replacement_efficiency: f32,
+    /// Масштаб SASP-сигнала.
+    pub sasp_scale: f32,
+    /// Коэффициент угнетения регенерации ниши.
+    pub niche_suppression_coeff: f32,
+    /// Доля удаления сенесцентных клеток (сенолитики) [0..1].
+    pub senolytic_clearance: f32,
+}
+
+impl Default for SenescenceAccumulationParams {
+    fn default() -> Self {
+        Self {
+            attrition_rate: 0.0003,
+            replacement_efficiency: 0.85,
+            sasp_scale: 0.60,
+            niche_suppression_coeff: 0.50,
+            senolytic_clearance: 0.0,
+        }
+    }
+}
+
+/// Обновить состояние накопления сенесцентных клеток за один шаг dt.
+///
+/// * `ros_level`      — текущий уровень ROS в нише [0..1]
+/// * `stem_cell_pool` — размер пула стволовых клеток [0..1] (не используется в текущей формуле,
+///                      зарезервировано для расширения)
+/// * `caii`           — индекс целостности придатков центриолей [0..1]
+/// * `dt`             — размер шага [лет]
+pub fn update_senescence_accumulation_state(
+    state: &mut SenescenceAccumulationState,
+    params: &SenescenceAccumulationParams,
+    ros_level: f32,
+    _stem_cell_pool: f32,
+    caii: f32,
+    dt: f32,
+) {
+    // Накопление: ROS и низкий CAII ускоряют индукцию сенесценции
+    let induction = (params.attrition_rate + ros_level * 0.002) * (1.0 - caii * 0.5) * dt;
+    let clearance = state.senescent_fraction * params.replacement_efficiency * 0.0001 * dt;
+    let senolytic  = state.senescent_fraction * params.senolytic_clearance * dt;
+
+    state.senescent_fraction = (state.senescent_fraction + induction - clearance - senolytic)
+        .clamp(0.0, 1.0);
+
+    state.sasp_output = state.senescent_fraction * params.sasp_scale;
+    state.niche_regenerative_capacity =
+        1.0 - state.senescent_fraction * params.niche_suppression_coeff;
+    state.cumulative_burden =
+        (state.cumulative_burden + state.senescent_fraction * dt).clamp(0.0, 1.0);
+}
+
+#[cfg(test)]
+mod tests_senescence_accumulation {
+    use super::*;
+
+    #[test]
+    fn young_low_ros_high_caii_stays_small() {
+        let mut state = SenescenceAccumulationState {
+            senescent_fraction: 0.01,
+            ..Default::default()
+        };
+        let params = SenescenceAccumulationParams::default();
+        // Низкий ROS, высокий CAII, 10 шагов по 1 году
+        for _ in 0..10 {
+            update_senescence_accumulation_state(&mut state, &params, 0.05, 1.0, 0.95, 1.0);
+        }
+        assert!(
+            state.senescent_fraction < 0.10,
+            "young: senescent_fraction={:.4} должно оставаться малым",
+            state.senescent_fraction
+        );
+    }
+
+    #[test]
+    fn aged_high_ros_accumulates_fast() {
+        let mut state = SenescenceAccumulationState {
+            senescent_fraction: 0.05,
+            ..Default::default()
+        };
+        let params = SenescenceAccumulationParams::default();
+        // Высокий ROS, низкий CAII, 30 шагов по 1 году
+        for _ in 0..30 {
+            update_senescence_accumulation_state(&mut state, &params, 0.80, 0.5, 0.30, 1.0);
+        }
+        assert!(
+            state.senescent_fraction > 0.07,
+            "aged high-ROS: senescent_fraction={:.4} должно расти выше начального 0.05",
+            state.senescent_fraction
+        );
+    }
+
+    #[test]
+    fn senolytic_clearance_reduces_fraction() {
+        let mut state_control = SenescenceAccumulationState {
+            senescent_fraction: 0.30,
+            ..Default::default()
+        };
+        let mut state_senolytic = SenescenceAccumulationState {
+            senescent_fraction: 0.30,
+            ..Default::default()
+        };
+        let params_control = SenescenceAccumulationParams::default();
+        let params_senolytic = SenescenceAccumulationParams {
+            senolytic_clearance: 0.50,
+            ..Default::default()
+        };
+        for _ in 0..5 {
+            update_senescence_accumulation_state(&mut state_control, &params_control, 0.2, 0.8, 0.7, 1.0);
+            update_senescence_accumulation_state(&mut state_senolytic, &params_senolytic, 0.2, 0.8, 0.7, 1.0);
+        }
+        assert!(
+            state_senolytic.senescent_fraction < state_control.senescent_fraction,
+            "senolytic: fraction={:.4} < control={:.4}",
+            state_senolytic.senescent_fraction,
+            state_control.senescent_fraction
+        );
+    }
+
+    #[test]
+    fn sasp_output_proportional_to_fraction() {
+        let mut state = SenescenceAccumulationState {
+            senescent_fraction: 0.40,
+            ..Default::default()
+        };
+        let params = SenescenceAccumulationParams::default();
+        update_senescence_accumulation_state(&mut state, &params, 0.1, 0.8, 0.8, 0.1);
+        let expected_sasp = state.senescent_fraction * params.sasp_scale;
+        assert!(
+            (state.sasp_output - expected_sasp).abs() < 1e-5,
+            "sasp_output={:.4} должно ≈ fraction × scale={:.4}",
+            state.sasp_output,
+            expected_sasp
+        );
+    }
+
+    #[test]
+    fn niche_capacity_decreases_with_high_fraction() {
+        let mut state = SenescenceAccumulationState {
+            senescent_fraction: 0.60,
+            ..Default::default()
+        };
+        let params = SenescenceAccumulationParams {
+            attrition_rate: 0.0,
+            senolytic_clearance: 0.0,
+            ..Default::default()
+        };
+        update_senescence_accumulation_state(&mut state, &params, 0.0, 1.0, 1.0, 0.001);
+        assert!(
+            state.niche_regenerative_capacity < 0.80,
+            "niche_capacity={:.4} должна снижаться при высокой сенесценции",
+            state.niche_regenerative_capacity
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P54 — PTMBurdenProfile
+// Профиль суммарного PTM-бремени ткани как функция возраста.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Профиль PTM-бремени для одного временного среза.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PTMBurdenProfile {
+    /// Возраст [лет].
+    pub age_years: f32,
+    /// Уровень карбонилирования [0..1].
+    pub carbonylation: f32,
+    /// Гиперацетилирование [0..1].
+    pub hyperacetylation: f32,
+    /// Агрегация белков [0..1].
+    pub aggregation: f32,
+    /// Нарушение фосфорилирования [0..1].
+    pub phospho_dysreg: f32,
+    /// Потеря придатков (1 − CAII) [0..1].
+    pub appendage_loss: f32,
+    /// Суммарное взвешенное бремя [0..1].
+    pub total_burden: f32,
+}
+
+impl PTMBurdenProfile {
+    /// Создать профиль из состояния повреждения центриоли.
+    pub fn from_damage_state(age: f32, damage: &CentriolarDamageState) -> Self {
+        let appendage_loss = 1.0
+            - (damage.cep164_integrity
+                + damage.cep89_integrity
+                + damage.ninein_integrity
+                + damage.cep170_integrity)
+                / 4.0;
+        let total = damage.protein_carbonylation * 0.25
+            + damage.tubulin_hyperacetylation * 0.20
+            + damage.protein_aggregates * 0.25
+            + damage.phosphorylation_dysregulation * 0.15
+            + appendage_loss * 0.15;
+        Self {
+            age_years: age,
+            carbonylation: damage.protein_carbonylation,
+            hyperacetylation: damage.tubulin_hyperacetylation,
+            aggregation: damage.protein_aggregates,
+            phospho_dysreg: damage.phosphorylation_dysregulation,
+            appendage_loss,
+            total_burden: total,
+        }
+    }
+
+    /// Найти возраст, при котором указанное поле пересекает порог 0.50.
+    pub fn age_at_50_percent(trajectory: &[PTMBurdenProfile], field: &str) -> Option<f32> {
+        for i in 1..trajectory.len() {
+            let prev = Self::get_field(&trajectory[i - 1], field);
+            let curr = Self::get_field(&trajectory[i], field);
+            if prev < 0.50 && curr >= 0.50 {
+                return Some(trajectory[i].age_years);
+            }
+        }
+        None
+    }
+
+    fn get_field(p: &PTMBurdenProfile, field: &str) -> f32 {
+        match field {
+            "carbonylation"   => p.carbonylation,
+            "hyperacetylation" => p.hyperacetylation,
+            "aggregation"     => p.aggregation,
+            "phospho_dysreg"  => p.phospho_dysreg,
+            "appendage_loss"  => p.appendage_loss,
+            _                 => p.total_burden,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_ptm_burden {
+    use super::*;
+
+    fn zero_damage() -> CentriolarDamageState {
+        CentriolarDamageState::pristine()
+    }
+
+    #[test]
+    fn from_damage_state_zeros_give_zero_fields() {
+        let dam = zero_damage();
+        let p = PTMBurdenProfile::from_damage_state(0.0, &dam);
+        assert!(p.carbonylation < 1e-5, "carbonylation должно быть 0");
+        assert!(p.aggregation < 1e-5,   "aggregation должно быть 0");
+        assert!(p.total_burden < 1e-5,  "total_burden должно быть 0");
+        // appendage_loss = 1 - (1+1+1+1)/4 = 0
+        assert!(p.appendage_loss < 1e-5, "appendage_loss должно быть 0");
+    }
+
+    #[test]
+    fn total_burden_is_correct_weighted_sum() {
+        let mut dam = zero_damage();
+        dam.protein_carbonylation       = 0.8;
+        dam.tubulin_hyperacetylation    = 0.6;
+        dam.protein_aggregates          = 0.4;
+        dam.phosphorylation_dysregulation = 0.5;
+        // appendages все 1.0 → appendage_loss = 0
+        let p = PTMBurdenProfile::from_damage_state(50.0, &dam);
+        let expected = 0.8 * 0.25 + 0.6 * 0.20 + 0.4 * 0.25 + 0.5 * 0.15 + 0.0 * 0.15;
+        assert!(
+            (p.total_burden - expected).abs() < 1e-5,
+            "total_burden={:.4} ожидалось={:.4}",
+            p.total_burden,
+            expected
+        );
+    }
+
+    #[test]
+    fn age_at_50_percent_finds_correct_age() {
+        // Строим траекторию с ростом карбонилирования
+        let mut trajectory = Vec::new();
+        for i in 0..=100 {
+            let age = i as f32;
+            let carb = (age / 100.0).powi(2); // 0→1 квадратично; пересекает 0.50 на ≈70.7 лет
+            trajectory.push(PTMBurdenProfile {
+                age_years: age,
+                carbonylation: carb,
+                hyperacetylation: 0.0,
+                aggregation: 0.0,
+                phospho_dysreg: 0.0,
+                appendage_loss: 0.0,
+                total_burden: carb,
+            });
+        }
+        let age50 = PTMBurdenProfile::age_at_50_percent(&trajectory, "carbonylation");
+        assert!(age50.is_some(), "должен найти возраст пересечения 0.50");
+        let a = age50.unwrap();
+        assert!(
+            (a - 71.0).abs() < 2.0,
+            "возраст пересечения ≈71 лет, получено={:.1}",
+            a
+        );
+    }
+
+    #[test]
+    fn age_at_50_percent_returns_none_if_not_reached() {
+        let trajectory: Vec<PTMBurdenProfile> = (0..=10)
+            .map(|i| PTMBurdenProfile {
+                age_years: i as f32,
+                carbonylation: i as f32 * 0.03, // max = 0.30 < 0.50
+                hyperacetylation: 0.0,
+                aggregation: 0.0,
+                phospho_dysreg: 0.0,
+                appendage_loss: 0.0,
+                total_burden: 0.0,
+            })
+            .collect();
+        let age50 = PTMBurdenProfile::age_at_50_percent(&trajectory, "carbonylation");
+        assert!(age50.is_none(), "не должен найти пересечения 0.50");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P57 — TrackABCrossState
+// Перекрёстная обратная связь между Track A (цилии) и Track B (веретено).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние перекрёстной обратной связи Трек A ↔ Трек B.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackABCrossState {
+    /// Штраф веретена из-за снижения функции цилий [0..1].
+    pub cilia_to_spindle_penalty: f32,
+    /// Штраф цилий из-за снижения точности веретена [0..1].
+    pub spindle_to_cilia_penalty: f32,
+    /// Нелинейная комбинированная дисфункция [0..1].
+    pub combined_dysfunction: f32,
+    /// Активен ли cross-talk (порог дисфункции превышен).
+    pub cross_talk_active: bool,
+}
+
+impl Default for TrackABCrossState {
+    fn default() -> Self {
+        Self {
+            cilia_to_spindle_penalty: 0.0,
+            spindle_to_cilia_penalty: 0.0,
+            combined_dysfunction: 0.0,
+            cross_talk_active: false,
+        }
+    }
+}
+
+/// Параметры перекрёстной обратной связи Трек A ↔ Трек B.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackABCrossParams {
+    /// Коэффициент связи цилии → веретено.
+    pub cilia_spindle_coupling: f32,
+    /// Коэффициент связи веретено → цилии.
+    pub spindle_cilia_coupling: f32,
+    /// Показатель нелинейности комбинированного эффекта.
+    pub nonlinearity_exponent: f32,
+    /// Порог дисфункции для включения cross-talk.
+    pub activation_threshold: f32,
+}
+
+impl Default for TrackABCrossParams {
+    fn default() -> Self {
+        Self {
+            cilia_spindle_coupling: 0.25,
+            spindle_cilia_coupling: 0.15,
+            nonlinearity_exponent: 1.8,
+            activation_threshold: 0.30,
+        }
+    }
+}
+
+/// Обновить состояние перекрёстной обратной связи.
+///
+/// * `ciliary_function`  — текущая функциональность цилий [0..1]
+/// * `spindle_fidelity`  — текущая точность веретена [0..1]
+pub fn update_track_ab_cross(
+    state: &mut TrackABCrossState,
+    params: &TrackABCrossParams,
+    ciliary_function: f32,
+    spindle_fidelity: f32,
+) {
+    let cilia_deficit   = (1.0 - ciliary_function).clamp(0.0, 1.0);
+    let spindle_deficit = (1.0 - spindle_fidelity).clamp(0.0, 1.0);
+
+    state.cilia_to_spindle_penalty = cilia_deficit   * params.cilia_spindle_coupling;
+    state.spindle_to_cilia_penalty = spindle_deficit * params.spindle_cilia_coupling;
+
+    let combined_linear = cilia_deficit * 0.5 + spindle_deficit * 0.5;
+    state.combined_dysfunction = combined_linear.powf(params.nonlinearity_exponent);
+
+    state.cross_talk_active = cilia_deficit   > params.activation_threshold
+        || spindle_deficit > params.activation_threshold;
+}
+
+#[cfg(test)]
+mod tests_track_ab_cross {
+    use super::*;
+
+    #[test]
+    fn both_healthy_no_crosstalk() {
+        let mut state = TrackABCrossState::default();
+        let params = TrackABCrossParams::default();
+        update_track_ab_cross(&mut state, &params, 1.0, 1.0);
+        assert!(!state.cross_talk_active, "оба здоровы — cross-talk не активен");
+        assert!(state.combined_dysfunction < 1e-5, "нет дисфункции при здоровых треках");
+        assert!(state.cilia_to_spindle_penalty < 1e-5);
+        assert!(state.spindle_to_cilia_penalty < 1e-5);
+    }
+
+    #[test]
+    fn low_cilia_activates_spindle_penalty() {
+        let mut state = TrackABCrossState::default();
+        let params = TrackABCrossParams::default();
+        update_track_ab_cross(&mut state, &params, 0.50, 1.0); // cilia_deficit=0.50
+        assert!(
+            state.cilia_to_spindle_penalty > 0.0,
+            "low cilia → spindle penalty > 0: {:.4}",
+            state.cilia_to_spindle_penalty
+        );
+        assert!(
+            state.cross_talk_active,
+            "cilia_deficit=0.50 > threshold=0.30 → cross_talk_active"
+        );
+    }
+
+    #[test]
+    fn combined_dysfunction_worse_than_linear() {
+        let mut state = TrackABCrossState::default();
+        let params = TrackABCrossParams {
+            nonlinearity_exponent: 1.8,
+            ..Default::default()
+        };
+        // Средний дефицит = 0.50 (оба трека по 0.50)
+        update_track_ab_cross(&mut state, &params, 0.50, 0.50);
+        let linear = 0.50f32;
+        // combined = linear^1.8 < linear → нелинейность снижает, но тест проверяет экспоненту
+        assert!(
+            (state.combined_dysfunction - linear.powf(1.8)).abs() < 1e-5,
+            "combined_dysfunction={:.4} ожидалось linear^1.8={:.4}",
+            state.combined_dysfunction,
+            linear.powf(1.8)
+        );
+        // combined < linear (нелинейность работает)
+        assert!(
+            state.combined_dysfunction < linear,
+            "combined({:.4}) < linear({:.4}) при exponent>1",
+            state.combined_dysfunction,
+            linear
+        );
+    }
+
+    #[test]
+    fn threshold_activates_cross_talk() {
+        let mut state = TrackABCrossState::default();
+        let params = TrackABCrossParams {
+            activation_threshold: 0.30,
+            ..Default::default()
+        };
+        // Чуть ниже порога → не активен
+        update_track_ab_cross(&mut state, &params, 0.75, 1.0); // cilia_deficit=0.25
+        assert!(!state.cross_talk_active, "deficit=0.25 < threshold=0.30 → не активен");
+
+        // Чуть выше порога → активен
+        update_track_ab_cross(&mut state, &params, 0.65, 1.0); // cilia_deficit=0.35
+        assert!(state.cross_talk_active, "deficit=0.35 > threshold=0.30 → активен");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P58 — CytoplasmQCState
+// Контроль качества цитоплазмы при асимметричном делении.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Состояние контроля качества цитоплазмы при асимметричном делении.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CytoplasmQCState {
+    /// Эффективность контроля качества [0..1].
+    pub qc_efficiency: f32,
+    /// Доля повреждённого груза в цитоплазме [0..1].
+    pub damaged_cargo_fraction: f32,
+    /// Качество сортировки митохондрий [0..1].
+    pub mitochondrial_sort_quality: f32,
+    /// Чистота стволовой дочерней клетки [0..1].
+    pub stem_daughter_purity: f32,
+}
+
+impl Default for CytoplasmQCState {
+    fn default() -> Self {
+        Self {
+            qc_efficiency: 0.90,
+            damaged_cargo_fraction: 0.0,
+            mitochondrial_sort_quality: 0.80,
+            stem_daughter_purity: 1.0,
+        }
+    }
+}
+
+/// Параметры контроля качества цитоплазмы.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CytoplasmQCParams {
+    /// Базовая эффективность QC [0..1].
+    pub qc_efficiency_base: f32,
+    /// Коэффициент связи повреждений с QC.
+    pub damage_qc_coupling: f32,
+    /// Базовая эффективность сортировки митохондрий [0..1].
+    pub mitochondrial_sort_efficiency: f32,
+    /// Скорость снижения QC с возрастом (за год).
+    pub age_qc_decline: f32,
+}
+
+impl Default for CytoplasmQCParams {
+    fn default() -> Self {
+        Self {
+            qc_efficiency_base: 0.90,
+            damage_qc_coupling: 0.60,
+            mitochondrial_sort_efficiency: 0.80,
+            age_qc_decline: 0.003,
+        }
+    }
+}
+
+/// Обновить состояние контроля качества цитоплазмы.
+///
+/// * `total_damage`  — суммарный индекс повреждений (из CentriolarDamageState) [0..1]
+/// * `aggregates`    — уровень агрегатов белков [0..1]
+/// * `age_years`     — возраст клетки/организма [лет]
+/// * `_dt`           — размер шага [лет] (зарезервировано)
+pub fn update_cytoplasm_qc(
+    state: &mut CytoplasmQCState,
+    params: &CytoplasmQCParams,
+    total_damage: f32,
+    aggregates: f32,
+    age_years: f32,
+    _dt: f32,
+) {
+    state.qc_efficiency = (params.qc_efficiency_base
+        - age_years * params.age_qc_decline
+        - total_damage * params.damage_qc_coupling * 0.30)
+        .clamp(0.05, 1.0);
+
+    state.damaged_cargo_fraction = aggregates * (1.0 - state.qc_efficiency);
+    state.mitochondrial_sort_quality =
+        params.mitochondrial_sort_efficiency * state.qc_efficiency;
+    state.stem_daughter_purity =
+        state.qc_efficiency * (1.0 - state.damaged_cargo_fraction * 0.5);
+}
+
+#[cfg(test)]
+mod tests_cytoplasm_qc {
+    use super::*;
+
+    #[test]
+    fn young_healthy_high_qc_and_purity() {
+        let mut state = CytoplasmQCState::default();
+        let params = CytoplasmQCParams::default();
+        update_cytoplasm_qc(&mut state, &params, 0.0, 0.0, 0.0, 1.0);
+        assert!(
+            state.qc_efficiency > 0.85,
+            "молодой здоровый: qc_efficiency={:.4} должно быть высоким",
+            state.qc_efficiency
+        );
+        assert!(
+            state.stem_daughter_purity > 0.85,
+            "stem_daughter_purity={:.4} должно быть высоким",
+            state.stem_daughter_purity
+        );
+    }
+
+    #[test]
+    fn old_age_reduces_qc_efficiency() {
+        let mut state_young = CytoplasmQCState::default();
+        let mut state_old   = CytoplasmQCState::default();
+        let params = CytoplasmQCParams::default();
+        update_cytoplasm_qc(&mut state_young, &params, 0.0, 0.0, 10.0,  1.0);
+        update_cytoplasm_qc(&mut state_old,   &params, 0.0, 0.0, 80.0, 1.0);
+        assert!(
+            state_old.qc_efficiency < state_young.qc_efficiency,
+            "old({:.4}) < young({:.4})",
+            state_old.qc_efficiency,
+            state_young.qc_efficiency
+        );
+    }
+
+    #[test]
+    fn high_damage_increases_damaged_cargo() {
+        let mut state_low  = CytoplasmQCState::default();
+        let mut state_high = CytoplasmQCState::default();
+        let params = CytoplasmQCParams::default();
+        update_cytoplasm_qc(&mut state_low,  &params, 0.0, 0.10, 40.0, 1.0);
+        update_cytoplasm_qc(&mut state_high, &params, 0.8, 0.80, 40.0, 1.0);
+        assert!(
+            state_high.damaged_cargo_fraction > state_low.damaged_cargo_fraction,
+            "high damage: damaged_cargo={:.4} > low_damage={:.4}",
+            state_high.damaged_cargo_fraction,
+            state_low.damaged_cargo_fraction
+        );
+    }
+
+    #[test]
+    fn stem_daughter_purity_function_of_qc_and_cargo() {
+        let mut state = CytoplasmQCState::default();
+        let params = CytoplasmQCParams::default();
+        update_cytoplasm_qc(&mut state, &params, 0.5, 0.5, 50.0, 1.0);
+        let expected = state.qc_efficiency * (1.0 - state.damaged_cargo_fraction * 0.5);
+        assert!(
+            (state.stem_daughter_purity - expected).abs() < 1e-5,
+            "purity={:.4} ожидалось={:.4}",
+            state.stem_daughter_purity,
+            expected
+        );
+    }
+
+    #[test]
+    fn mito_sort_quality_equals_base_times_qc() {
+        let mut state = CytoplasmQCState::default();
+        let params = CytoplasmQCParams::default();
+        update_cytoplasm_qc(&mut state, &params, 0.3, 0.2, 30.0, 1.0);
+        let expected = params.mitochondrial_sort_efficiency * state.qc_efficiency;
+        assert!(
+            (state.mitochondrial_sort_quality - expected).abs() < 1e-5,
+            "mito_sort={:.4} ожидалось={:.4}",
+            state.mitochondrial_sort_quality,
+            expected
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P60 — Межвидовые профили (InterspeciesScaling)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Видовой профиль для межвидового масштабирования CDATA.
+#[derive(Debug, Clone)]
+pub struct SpeciesProfile {
+    /// Название вида.
+    pub name: &'static str,
+    /// Известная продолжительность жизни [лет].
+    pub lifespan_years: f32,
+    /// Относительный метаболизм (1.0 = человек).
+    pub metabolic_rate_relative: f32,
+    /// Масса тела [кг].
+    pub body_mass_kg: f32,
+    /// Масштаб base_detach_probability относительно человека.
+    pub base_detach_scale: f32,
+    /// Масштаб продукции ROS относительно человека.
+    pub ros_scale: f32,
+}
+
+/// Известные виды с откалиброванными CDATA-параметрами.
+pub const SPECIES_PROFILES: &[SpeciesProfile] = &[
+    SpeciesProfile {
+        name: "mouse",
+        lifespan_years: 2.5,
+        metabolic_rate_relative: 7.0,
+        body_mass_kg: 0.025,
+        base_detach_scale: 8.0,
+        ros_scale: 3.5,
+    },
+    SpeciesProfile {
+        name: "human",
+        lifespan_years: 78.0,
+        metabolic_rate_relative: 1.0,
+        body_mass_kg: 70.0,
+        base_detach_scale: 1.0,
+        ros_scale: 1.0,
+    },
+    SpeciesProfile {
+        name: "bat",
+        lifespan_years: 40.0,
+        metabolic_rate_relative: 6.5,
+        body_mass_kg: 0.020,
+        base_detach_scale: 1.5,
+        ros_scale: 0.4,
+    },
+    SpeciesProfile {
+        name: "naked_mole_rat",
+        lifespan_years: 30.0,
+        metabolic_rate_relative: 3.0,
+        body_mass_kg: 0.035,
+        base_detach_scale: 0.8,
+        ros_scale: 0.3,
+    },
+];
+
+/// Предсказать продолжительность жизни из параметров CDATA.
+///
+/// Обратная функция: чем выше detach_scale × ros_scale, тем короче жизнь.
+pub fn predicted_lifespan_from_cdata(species: &SpeciesProfile) -> f32 {
+    78.0 / (species.base_detach_scale * species.ros_scale).sqrt()
+}
+
+#[cfg(test)]
+mod tests_interspecies {
+    use super::*;
+
+    fn find_species(name: &str) -> &'static SpeciesProfile {
+        SPECIES_PROFILES.iter().find(|s| s.name == name).unwrap()
+    }
+
+    #[test]
+    fn mouse_shorter_than_human() {
+        let mouse = find_species("mouse");
+        let human = find_species("human");
+        let pred_mouse = predicted_lifespan_from_cdata(mouse);
+        let pred_human = predicted_lifespan_from_cdata(human);
+        assert!(
+            pred_mouse < pred_human,
+            "mouse predicted({:.2}) < human predicted({:.2})",
+            pred_mouse,
+            pred_human
+        );
+    }
+
+    #[test]
+    fn bat_longer_than_mouse_despite_high_metabolic_rate() {
+        let bat   = find_species("bat");
+        let mouse = find_species("mouse");
+        let pred_bat   = predicted_lifespan_from_cdata(bat);
+        let pred_mouse = predicted_lifespan_from_cdata(mouse);
+        assert!(
+            pred_bat > pred_mouse,
+            "bat({:.2}) > mouse({:.2}) несмотря на высокий метаболизм",
+            pred_bat,
+            pred_mouse
+        );
+    }
+
+    #[test]
+    fn naked_mole_rat_longevity_from_low_ros() {
+        let nmr   = find_species("naked_mole_rat");
+        let mouse = find_species("mouse");
+        let pred_nmr   = predicted_lifespan_from_cdata(nmr);
+        let pred_mouse = predicted_lifespan_from_cdata(mouse);
+        assert!(
+            pred_nmr > pred_mouse,
+            "naked_mole_rat({:.2}) > mouse({:.2}) из-за низкого ROS",
+            pred_nmr,
+            pred_mouse
+        );
+    }
+
+    #[test]
+    fn human_prediction_close_to_known() {
+        let human = find_species("human");
+        let pred = predicted_lifespan_from_cdata(human);
+        // human: detach_scale=1.0, ros_scale=1.0 → pred = 78.0
+        assert!(
+            (pred - 78.0).abs() < 1.0,
+            "human predicted={:.2} ожидалось ≈78",
+            pred
+        );
+    }
+}

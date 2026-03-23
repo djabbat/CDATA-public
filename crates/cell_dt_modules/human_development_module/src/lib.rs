@@ -280,6 +280,13 @@ pub struct HumanDevelopmentParams {
     /// 0.01–0.05 = умеренный шум → клональная гетерогенность (нужна для NichePool/CHIP).
     /// Шум применяется по Ито: sigma = noise_scale × sqrt(dt_years).
     pub noise_scale: f32,
+
+    /// P59 — Гипотеза индукторов.
+    ///
+    /// `true` (default) — стандартная модель: потентность вычисляется через индукторную систему.
+    /// `false`           — без индукторов: потентность задаётся напрямую как
+    ///                     f(spindle_fidelity, ciliary_function), имитируя альтернативную гипотезу.
+    pub enable_inducer_system: bool,
 }
 
 impl Default for HumanDevelopmentParams {
@@ -298,6 +305,7 @@ impl Default for HumanDevelopmentParams {
             de_novo_centriole_division: 4,    // 16-клеточная стадия (Морула)
             meiotic_elimination_enabled: true, // биологически корректный дефолт
             noise_scale: 0.0,           // детерминированно по умолчанию
+            enable_inducer_system: true, // стандартная модель с индукторами
         }
     }
 }
@@ -1386,6 +1394,21 @@ impl SimulationModule for HumanDevelopmentModule {
 
                 // 5. Тканевое состояние (Трек A + Трек B + P13 морфогены)
                 Self::update_tissue_state(comp, self.params.tissue_detail_level);
+
+                // P59: Если индукторная система выключена — потентность задаётся напрямую
+                // через spindle_fidelity + ciliary_function, без учёта индукторного комплекта.
+                // Моделирует альтернативную гипотезу: стволовость определяется только
+                // механической и сигнальной функцией, а не молекулярными индукторами.
+                if !self.params.enable_inducer_system {
+                    let sf = comp.centriolar_damage.spindle_fidelity;
+                    let cf = comp.centriolar_damage.ciliary_function;
+                    // Потентность без индукторов = среднее geometric spindle × cilia
+                    let no_inducer_pool = (sf * cf).sqrt();
+                    // Применяем как дополнительное ограничение сверху:
+                    // без индукторной системы пул не может превышать spindle×cilia
+                    comp.tissue_state.stem_cell_pool =
+                        comp.tissue_state.stem_cell_pool.min(no_inducer_pool);
+                }
 
                 // 5-P11: Senolytics — клиренс сенесцентных клеток.
                 // Снижает senescent_fraction и тем самым уменьшает SASP (косвенно).

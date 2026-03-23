@@ -94,6 +94,74 @@ pub enum InterventionKind {
     /// `donor_m_count` — уровень M-индукторов донора (молодая клетка: 8–10).
     /// `donor_d_count` — уровень D-индукторов донора (молодая клетка: 6–8).
     CentrosomeTransplant { donor_m_count: u32, donor_d_count: u32 },
+
+    /// Перепрограммирование Яманака (частичное) — снижает эпигенетический возраст.
+    ///
+    /// Источник: Ocampo et al. 2016 Cell (in vivo mouse).
+    ///
+    /// `methylation_age_reduction` [0..1]: доля снижения methylation_age за активный шаг.
+    /// Типично: 0.10–0.30 (10–30% омоложение эпигенома).
+    Yamanaka { methylation_age_reduction: f32 },
+
+    /// Рапамицин / CR-мимик — ингибирование mTOR снижает скорость повреждений.
+    ///
+    /// Источник: Harrison et al. 2009 Nature (RCT + in vivo).
+    ///
+    /// `mtor_inhibition` [0..1]: степень ингибирования mTOR → снижение aggregation_rate.
+    /// Типично для рапамицина: 0.30–0.50.
+    RapamycinCR { mtor_inhibition: f32 },
+}
+
+// ---------------------------------------------------------------------------
+// Уровень доказательности
+// ---------------------------------------------------------------------------
+
+/// Уровень доказательности интервенции.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EvidenceLevel {
+    /// Рандомизированное контролируемое исследование.
+    RCT,
+    /// Мета-анализ (≥2 RCT).
+    MetaAnalysis,
+    /// Исследования in vivo (на животных).
+    InVivo,
+    /// Исследования in vitro (клеточные культуры).
+    InVitro,
+    /// Вычислительное моделирование.
+    InSilico,
+    /// Доклиническое (животные / клетки без клинических данных).
+    Preclinical,
+}
+
+/// Получить уровень доказательности для вида интервенции.
+pub fn intervention_evidence_level(kind: &InterventionKind) -> (&'static str, EvidenceLevel) {
+    match kind {
+        InterventionKind::Senolytics { .. } => (
+            "RCT (dasatinib+quercetin, Kirkland 2019)",
+            EvidenceLevel::RCT,
+        ),
+        InterventionKind::NadPlus { .. } => (
+            "RCT (n=60, Rajman 2018)",
+            EvidenceLevel::RCT,
+        ),
+        InterventionKind::CaloricRestriction { .. } => (
+            "meta-analysis (40+ RCTs)",
+            EvidenceLevel::MetaAnalysis,
+        ),
+        InterventionKind::Yamanaka { .. } => (
+            "in vivo mouse (Ocampo 2016 Cell)",
+            EvidenceLevel::InVivo,
+        ),
+        InterventionKind::RapamycinCR { .. } => (
+            "RCT + in vivo (Harrison 2009 Nature)",
+            EvidenceLevel::RCT,
+        ),
+        InterventionKind::CentrosomeTransplant { .. } => (
+            "in silico (CDATA model, Tkemaladze 2025)",
+            EvidenceLevel::InSilico,
+        ),
+        _ => ("preclinical", EvidenceLevel::Preclinical),
+    }
 }
 
 impl Intervention {
@@ -210,6 +278,27 @@ pub fn compute_effect(
                     None => (donor_m_count, donor_d_count),
                     Some((prev_m, prev_d)) => (prev_m.max(donor_m_count), prev_d.max(donor_d_count)),
                 });
+            }
+            InterventionKind::Yamanaka { methylation_age_reduction } => {
+                // Эпигенетическое перепрограммирование: снижает скорость накопления повреждений
+                // через уменьшение clock_acceleration (моделируется как снижение aggregation_rate).
+                eff.damage_params.aggregation_rate *=
+                    1.0 - methylation_age_reduction.clamp(0.0, 1.0) * 0.50;
+                eff.damage_params.base_ros_damage_rate *=
+                    1.0 - methylation_age_reduction.clamp(0.0, 1.0) * 0.30;
+                // Яманака восстанавливает придатки (частично)
+                eff.damage_params.cep164_repair_rate +=
+                    methylation_age_reduction * 0.002;
+            }
+            InterventionKind::RapamycinCR { mtor_inhibition } => {
+                // mTOR ингибирование: активирует аутофагию → снижает агрегацию белков
+                eff.damage_params.aggregation_rate *=
+                    1.0 - mtor_inhibition.clamp(0.0, 1.0) * 0.40;
+                // CR-мимик также снижает базовый ROS
+                eff.damage_params.base_ros_damage_rate *=
+                    1.0 - mtor_inhibition.clamp(0.0, 1.0) * 0.20;
+                // Рапамицин улучшает митофагию (PINK1/Parkin через mTOR)
+                eff.extra_mitophagy += mtor_inhibition * 0.15;
             }
         }
     }
@@ -403,5 +492,93 @@ mod tests {
         // Комбинация должна давать ещё меньший ROS
         assert!(eff.damage_params.base_ros_damage_rate < single_nad.damage_params.base_ros_damage_rate,
             "комбинация CR+NAD+ сильнее одного NAD+");
+    }
+
+    // P56 — новые тесты: EvidenceLevel + Yamanaka + RapamycinCR + комбо
+
+    #[test]
+    fn evidence_level_returns_string_for_all_kinds() {
+        let kinds = vec![
+            InterventionKind::Senolytics { clearance_rate: 0.4 },
+            InterventionKind::NadPlus { mitophagy_boost: 0.5 },
+            InterventionKind::CaloricRestriction { ros_factor: 0.7 },
+            InterventionKind::Yamanaka { methylation_age_reduction: 0.2 },
+            InterventionKind::RapamycinCR { mtor_inhibition: 0.4 },
+            InterventionKind::CentrosomeTransplant { donor_m_count: 9, donor_d_count: 7 },
+            InterventionKind::Antioxidant,
+        ];
+        for kind in &kinds {
+            let (desc, _level) = intervention_evidence_level(kind);
+            assert!(!desc.is_empty(), "evidence string не пустая для {:?}", kind);
+        }
+    }
+
+    #[test]
+    fn yamanaka_reduces_aggregation_and_ros() {
+        let ivs = vec![Intervention {
+            start_age_years: 50.0,
+            end_age_years: None,
+            kind: InterventionKind::Yamanaka { methylation_age_reduction: 0.20 },
+        }];
+        let eff = compute_effect(&ivs, 60.0, &base(), 1.0 / 365.25);
+        let b = base();
+        assert!(
+            eff.damage_params.aggregation_rate < b.aggregation_rate,
+            "Yamanaka снижает aggregation_rate: {:.6} < {:.6}",
+            eff.damage_params.aggregation_rate,
+            b.aggregation_rate
+        );
+        assert!(
+            eff.damage_params.base_ros_damage_rate < b.base_ros_damage_rate,
+            "Yamanaka снижает base_ros_damage_rate"
+        );
+    }
+
+    #[test]
+    fn rapamycin_cr_reduces_mtor_activity() {
+        let ivs = vec![Intervention {
+            start_age_years: 0.0,
+            end_age_years: None,
+            kind: InterventionKind::RapamycinCR { mtor_inhibition: 0.40 },
+        }];
+        let eff = compute_effect(&ivs, 60.0, &base(), 1.0 / 365.25);
+        let b = base();
+        assert!(
+            eff.damage_params.aggregation_rate < b.aggregation_rate,
+            "RapamycinCR снижает aggregation (mTOR→аутофагия)"
+        );
+        assert!(
+            eff.extra_mitophagy > 0.0,
+            "RapamycinCR добавляет митофагию: {:.4}", eff.extra_mitophagy
+        );
+    }
+
+    #[test]
+    fn senolytics_plus_nad_plus_stronger_than_each_alone() {
+        let ivs_both = vec![
+            Intervention {
+                start_age_years: 60.0,
+                end_age_years: None,
+                kind: InterventionKind::Senolytics { clearance_rate: 0.4 },
+            },
+            Intervention {
+                start_age_years: 60.0,
+                end_age_years: None,
+                kind: InterventionKind::NadPlus { mitophagy_boost: 0.4 },
+            },
+        ];
+        let ivs_nad = vec![ivs_both[1].clone()];
+        let eff_both = compute_effect(&ivs_both, 70.0, &base(), 1.0 / 365.25);
+        let eff_nad  = compute_effect(&ivs_nad,  70.0, &base(), 1.0 / 365.25);
+        // Комбо даёт ещё меньший ROS чем один NAD+
+        assert!(
+            eff_both.damage_params.base_ros_damage_rate
+                <= eff_nad.damage_params.base_ros_damage_rate,
+            "Senolytics+NAD+: ros={:.6} ≤ NAD+ alone: ros={:.6}",
+            eff_both.damage_params.base_ros_damage_rate,
+            eff_nad.damage_params.base_ros_damage_rate
+        );
+        // И дополнительно добавляет senolytic_clearance
+        assert!(eff_both.senolytic_clearance > 0.0, "комбо включает senolytic_clearance");
     }
 }

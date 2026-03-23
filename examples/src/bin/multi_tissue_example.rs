@@ -75,6 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             de_novo_centriole_division: 4,
             meiotic_elimination_enabled: true,
             noise_scale:                0.05, // небольшой шум для вариации
+            enable_inducer_system:      true,
         }
     )))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;

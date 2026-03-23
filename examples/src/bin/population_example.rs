@@ -163,6 +163,7 @@ fn simulate_organism(
             de_novo_centriole_division: 4,
             meiotic_elimination_enabled: true,
             noise_scale:                0.15,
+            enable_inducer_system:      true,
         }
     )))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;

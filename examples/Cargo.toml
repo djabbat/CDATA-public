@@ -93,3 +93,19 @@ path = "src/bin/population_example.rs"
 [[bin]]
 name = "ze_validation_example"
 path = "src/bin/ze_validation_example.rs"
+
+[[bin]]
+name = "senescence_cascade_example"
+path = "src/bin/senescence_cascade_example.rs"
+
+[[bin]]
+name = "ptm_trajectory_example"
+path = "src/bin/ptm_trajectory_example.rs"
+
+[[bin]]
+name = "inducer_hypothesis_example"
+path = "src/bin/inducer_hypothesis_example.rs"
+
+[[bin]]
+name = "interspecies_example"
+path = "src/bin/interspecies_example.rs"

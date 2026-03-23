@@ -130,6 +130,7 @@ fn run_simulation(
         de_novo_centriole_division:   4,
         meiotic_elimination_enabled: true,
         noise_scale:               0.0,
+        enable_inducer_system:     true,
     };
 
     let mut dev_module = HumanDevelopmentModule::with_params(dev_params);
