@@ -3487,17 +3487,17 @@ pub struct MitochondrialState {
     /// Вклад митохондрий в кислородный щит центросомы [0..1].
     /// 1.0 = полный щит; 0.0 = щита нет.
     pub mito_shield_contribution: f32,
-    /// Плотность перинуклеарного митохондриального кластера [0..1] (P9).
+    /// Плотность перицентриолярного митохондриального кластера [0..1] (P9).
     /// Зависит от `fusion_index` и локального ROS; добавляет пространственный
     /// барьер диффузии O₂ к центросоме поверх скалярного `mito_shield`.
-    /// `perinuclear_barrier = perinuclear_density × 0.15`
-    pub perinuclear_density: f32,
+    /// `perinuclear_barrier = pericentriolar_density × 0.15`
+    pub pericentriolar_density: f32,
 }
 
 impl Default for MitochondrialState {
     fn default() -> Self {
         Self {
-            perinuclear_density: 1.0,
+            pericentriolar_density: 1.0,
             mtdna_mutations: 0.0,
             fusion_index: 1.0,
             ros_production: 0.0,
@@ -4220,6 +4220,8 @@ impl Default for SenescenceAccumulationParams {
 ///                      зарезервировано для расширения)
 /// * `caii`           — индекс целостности придатков центриолей [0..1]
 /// * `dt`             — размер шага [лет]
+/// * `division_rate`  — текущий темп деления стволовых клеток [0..1]; низкий темп
+///                      ускоряет накопление сенесцентных клеток (нет замены)
 pub fn update_senescence_accumulation_state(
     state: &mut SenescenceAccumulationState,
     params: &SenescenceAccumulationParams,
@@ -4227,9 +4229,13 @@ pub fn update_senescence_accumulation_state(
     _stem_cell_pool: f32,
     caii: f32,
     dt: f32,
+    division_rate: f32,
 ) {
-    // Накопление: ROS и низкий CAII ускоряют индукцию сенесценции
-    let induction = (params.attrition_rate + ros_level * 0.002) * (1.0 - caii * 0.5) * dt;
+    // Накопление: ROS и низкий CAII ускоряют индукцию сенесценции;
+    // медленное деление снижает замену клеток → больше остаётся сенесцентных.
+    let division_slowdown_boost = (1.0 - division_rate).max(0.0) * 0.002;
+    let induction = (params.attrition_rate + ros_level * 0.002 + division_slowdown_boost)
+        * (1.0 - caii * 0.5) * dt;
     let clearance = state.senescent_fraction * params.replacement_efficiency * 0.0001 * dt;
     let senolytic  = state.senescent_fraction * params.senolytic_clearance * dt;
 
@@ -4256,7 +4262,7 @@ mod tests_senescence_accumulation {
         let params = SenescenceAccumulationParams::default();
         // Низкий ROS, высокий CAII, 10 шагов по 1 году
         for _ in 0..10 {
-            update_senescence_accumulation_state(&mut state, &params, 0.05, 1.0, 0.95, 1.0);
+            update_senescence_accumulation_state(&mut state, &params, 0.05, 1.0, 0.95, 1.0, 1.0);
         }
         assert!(
             state.senescent_fraction < 0.10,
@@ -4274,7 +4280,7 @@ mod tests_senescence_accumulation {
         let params = SenescenceAccumulationParams::default();
         // Высокий ROS, низкий CAII, 30 шагов по 1 году
         for _ in 0..30 {
-            update_senescence_accumulation_state(&mut state, &params, 0.80, 0.5, 0.30, 1.0);
+            update_senescence_accumulation_state(&mut state, &params, 0.80, 0.5, 0.30, 1.0, 0.8);
         }
         assert!(
             state.senescent_fraction > 0.07,
@@ -4299,8 +4305,8 @@ mod tests_senescence_accumulation {
             ..Default::default()
         };
         for _ in 0..5 {
-            update_senescence_accumulation_state(&mut state_control, &params_control, 0.2, 0.8, 0.7, 1.0);
-            update_senescence_accumulation_state(&mut state_senolytic, &params_senolytic, 0.2, 0.8, 0.7, 1.0);
+            update_senescence_accumulation_state(&mut state_control, &params_control, 0.2, 0.8, 0.7, 1.0, 0.8);
+            update_senescence_accumulation_state(&mut state_senolytic, &params_senolytic, 0.2, 0.8, 0.7, 1.0, 0.8);
         }
         assert!(
             state_senolytic.senescent_fraction < state_control.senescent_fraction,
@@ -4317,7 +4323,7 @@ mod tests_senescence_accumulation {
             ..Default::default()
         };
         let params = SenescenceAccumulationParams::default();
-        update_senescence_accumulation_state(&mut state, &params, 0.1, 0.8, 0.8, 0.1);
+        update_senescence_accumulation_state(&mut state, &params, 0.1, 0.8, 0.8, 0.1, 1.0);
         let expected_sasp = state.senescent_fraction * params.sasp_scale;
         assert!(
             (state.sasp_output - expected_sasp).abs() < 1e-5,
@@ -4338,7 +4344,7 @@ mod tests_senescence_accumulation {
             senolytic_clearance: 0.0,
             ..Default::default()
         };
-        update_senescence_accumulation_state(&mut state, &params, 0.0, 1.0, 1.0, 0.001);
+        update_senescence_accumulation_state(&mut state, &params, 0.0, 1.0, 1.0, 0.001, 1.0);
         assert!(
             state.niche_regenerative_capacity < 0.80,
             "niche_capacity={:.4} должна снижаться при высокой сенесценции",

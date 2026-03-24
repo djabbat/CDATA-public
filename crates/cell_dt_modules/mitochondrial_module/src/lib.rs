@@ -213,9 +213,9 @@ impl SimulationModule for MitochondrialModule {
                     .clamp(0.0, 1.0);
 
             // --- 7. Перинуклеарная плотность (P9 — пространственный O₂-щит) ---
-            // fusion_index → компактный перинуклеарный кластер
+            // fusion_index → компактный перицентриолярный кластер
             // ros_production ↑ → фрагментация сети → кластер рассыпается
-            mito.perinuclear_density =
+            mito.pericentriolar_density =
                 (mito.fusion_index * 0.70
                     + (1.0 - mito.ros_production) * 0.30)
                     .clamp(0.0, 1.0);
@@ -366,11 +366,11 @@ mod tests {
         }
     }
 
-    /// perinuclear_density вносит вклад в mito_shield (P9).
-    /// Высокий fusion_index + низкий ROS → высокая perinuclear_density
-    /// → плотный перинуклеарный кластер → усиленный O₂-щит.
+    /// pericentriolar_density вносит вклад в mito_shield (P9).
+    /// Высокий fusion_index + низкий ROS → высокая pericentriolar_density
+    /// → плотный перицентриолярный кластер → усиленный O₂-щит.
     #[test]
-    fn test_perinuclear_density_contributes_to_shield() {
+    fn test_pericentriolar_density_contributes_to_shield() {
         let (mut world, entity) = make_world_with_entity();
         let mut module = MitochondrialModule::new();
 
@@ -378,7 +378,7 @@ mod tests {
         // ros_production пересчитывается шагом по формуле из mtdna_mutations и fusion_index:
         //   ros = mtdna×0.6 + (1-fusion)×0.25 + damage.ros×0.1
         // При mtdna=0, fusion=0.9: ros ≈ 0 + 0.025 + 0 = 0.025
-        // → perinuclear_density = 0.9×0.70 + (1-0.025)×0.30 ≈ 0.92
+        // → pericentriolar_density = 0.9×0.70 + (1-0.025)×0.30 ≈ 0.92
         {
             let mut state = world.get::<&mut MitochondrialState>(entity).unwrap();
             state.fusion_index       = 0.9;
@@ -389,12 +389,12 @@ mod tests {
 
         let (healthy_density, healthy_shield) = {
             let s = world.get::<&MitochondrialState>(entity).unwrap();
-            (s.perinuclear_density, s.mito_shield_contribution)
+            (s.pericentriolar_density, s.mito_shield_contribution)
         };
 
         // Шаг 2: «старая» сеть — низкий fusion, высокие мтДНК мутации
         // При mtdna=0.9, fusion=0.2: ros ≈ 0.54 + 0.20 + 0 = 0.74
-        // → perinuclear_density = 0.2×0.70 + (1-0.74)×0.30 ≈ 0.22
+        // → pericentriolar_density = 0.2×0.70 + (1-0.74)×0.30 ≈ 0.22
         {
             let mut state = world.get::<&mut MitochondrialState>(entity).unwrap();
             state.fusion_index       = 0.2;
@@ -405,12 +405,12 @@ mod tests {
 
         let (aged_density, aged_shield) = {
             let s = world.get::<&MitochondrialState>(entity).unwrap();
-            (s.perinuclear_density, s.mito_shield_contribution)
+            (s.pericentriolar_density, s.mito_shield_contribution)
         };
 
-        // Здоровая сеть → высокая perinuclear_density
+        // Здоровая сеть → высокая pericentriolar_density
         assert!(healthy_density > aged_density,
-            "perinuclear_density должна быть выше при здоровой сети: {:.3} vs {:.3}",
+            "pericentriolar_density должна быть выше при здоровой сети: {:.3} vs {:.3}",
             healthy_density, aged_density);
 
         // Здоровая сеть → лучший O₂-щит
@@ -424,9 +424,9 @@ mod tests {
 
         // Количественные проверки по аналитической формуле
         assert!(healthy_density > 0.80,
-            "при fusion=0.9, mtdna=0.0 ожидаем perinuclear_density > 0.80, получили {:.3}", healthy_density);
+            "при fusion=0.9, mtdna=0.0 ожидаем pericentriolar_density > 0.80, получили {:.3}", healthy_density);
         assert!(aged_density < 0.35,
-            "при fusion=0.2, mtdna=0.9 ожидаем perinuclear_density < 0.35, получили {:.3}", aged_density);
+            "при fusion=0.2, mtdna=0.9 ожидаем pericentriolar_density < 0.35, получили {:.3}", aged_density);
     }
 
     /// fusion_index снижается при высоком ROS (фрагментация)

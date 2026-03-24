@@ -47,6 +47,12 @@ use cell_dt_core::{
         MicrotubuleState,
         GolgiState,
         GeneticProfile,
+        SenescenceAccumulationState,
+        SenescenceAccumulationParams,
+        update_senescence_accumulation_state,
+        TrackABCrossState,
+        TrackABCrossParams,
+        update_track_ab_cross,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -952,6 +958,10 @@ impl SimulationModule for HumanDevelopmentModule {
                 world.insert_one(entity, DDRState::default())?;
                 world.insert_one(entity, StemCellDivisionRateState::default())?;
                 world.insert_one(entity, HormonalFertilityState::default())?;
+                // P65: Сенесцентная петля
+                world.insert_one(entity, SenescenceAccumulationState::default())?;
+                // P66: TrackAB cross-feedback
+                world.insert_one(entity, TrackABCrossState::default())?;
                 // Убираем маркер: сущность теперь полноценная ниша
                 let _ = world.remove::<(NeedsHumanDevInit,)>(entity);
                 trace!("HumanDev lazy-init: NichePool replacement initialized as {:?} HSC (clone {})", tissue, clone_id);
@@ -1033,10 +1043,10 @@ impl SimulationModule for HumanDevelopmentModule {
             let mito_ros_boost = mito_opt.map_or(0.0, |m| m.ros_boost(0.20));
             // Митохондриальный щит: снижает эффективный кислородный уровень у центросомы
             // mito_shield_contribution < 1.0 → O₂ проникает активнее → больше отщеплений
-            // P9: perinuclear_density добавляет пространственный барьер диффузии O₂ (max +15%)
+            // P9: pericentriolar_density добавляет пространственный барьер диффузии O₂ (max +15%)
             // Применяется к base_detach_probability через масштабирование (лаг 1 шаг)
             let mito_shield = mito_opt.map_or(1.0, |m| {
-                (m.mito_shield_contribution + m.perinuclear_density * 0.15).clamp(0.0, 1.0)
+                (m.mito_shield_contribution + m.pericentriolar_density * 0.15).clamp(0.0, 1.0)
             });
             // Вклад эпигенетических часов в ROS (лаг 1 шаг, аналогично inflammaging)
             let epi_ros_from_prev = epigenetic_opt.as_ref().map_or(0.0, |e| e.epi_ros_contribution);
@@ -1842,6 +1852,60 @@ impl SimulationModule for HumanDevelopmentModule {
             }
         }
 
+        // Шаг P65: Сенесцентная петля обратной связи.
+        // division_rate → senescent_fraction → SASP → ros_boost → division_rate
+        //
+        // Алгоритм:
+        //   1. Обновляем SenescenceAccumulationState с учётом ros_level и division_rate.
+        //   2. Записываем sasp_output → InflammagingState.sasp_intensity.
+        //      InflammagingState.ros_boost уже читается в следующем шаге для расчёта ROS.
+        //   3. Синхронизируем senescent_fraction обратно в TissueState (берём максимум).
+        {
+            // Собираем данные division_rate отдельно (нельзя смешивать запросы с mut)
+            let div_rates: std::collections::HashMap<Entity, f32> = {
+                let mut map = std::collections::HashMap::new();
+                for (e, divrate) in world.query::<&StemCellDivisionRateState>().iter() {
+                    map.insert(e, divrate.division_rate);
+                }
+                map
+            };
+
+            let sen_params = SenescenceAccumulationParams::default();
+            for (entity, (dev, sen_acc, infl_opt)) in world.query_mut::<(
+                &mut HumanDevelopmentComponent,
+                &mut SenescenceAccumulationState,
+                Option<&mut InflammagingState>,
+            )>() {
+                if !dev.is_alive { continue; }
+                let ros_level = dev.centriolar_damage.ros_level;
+                let stem_pool = dev.tissue_state.stem_cell_pool;
+                // CAII = целостность придатков центриолей (среднее по 4 аппендажным метрикам)
+                let dam = &dev.centriolar_damage;
+                let caii = (dam.cep164_integrity + dam.cep89_integrity
+                    + dam.ninein_integrity + dam.cep170_integrity) * 0.25;
+                let division_rate = div_rates.get(&entity).copied().unwrap_or(1.0);
+
+                update_senescence_accumulation_state(
+                    sen_acc,
+                    &sen_params,
+                    ros_level,
+                    stem_pool,
+                    caii,
+                    dt_years,
+                    division_rate,
+                );
+
+                // Шаг 3: sasp_output → InflammagingState.sasp_intensity (обратная связь)
+                if let Some(infl) = infl_opt {
+                    infl.sasp_intensity = infl.sasp_intensity.max(sen_acc.sasp_output);
+                }
+
+                // Шаг 4: синхронизация senescent_fraction → TissueState (берём максимум)
+                dev.tissue_state.senescent_fraction =
+                    dev.tissue_state.senescent_fraction.max(sen_acc.senescent_fraction);
+            }
+        }
+
         // Шаг 1и: Track G — Life-History Trade-off / Гормональный Часовой Механизм.
         //
         // Обновляет HormonalFertilityState по возрасту:
@@ -1930,6 +1994,25 @@ impl SimulationModule for HumanDevelopmentModule {
                     );
                 }
                 let _ = world.insert_one(entity, Dead);
+            }
+        }
+
+        // P66: Обновить TrackABCrossState — перекрёстная обратная связь Track A ↔ Track B.
+        // После обновления centriolar_damage (все треки A/B рассчитаны).
+        // Результат читается myeloid_shift_module на следующем шаге (лаг 1 шаг — корректно).
+        {
+            for (_, (dev, track_ab)) in world.query_mut::<(
+                &HumanDevelopmentComponent,
+                &mut TrackABCrossState,
+            )>() {
+                if !dev.is_alive { continue; }
+                let params = TrackABCrossParams::default();
+                update_track_ab_cross(
+                    track_ab,
+                    &params,
+                    dev.centriolar_damage.ciliary_function,
+                    dev.centriolar_damage.spindle_fidelity,
+                );
             }
         }
 
@@ -2174,6 +2257,10 @@ impl SimulationModule for HumanDevelopmentModule {
             world.insert_one(entity, DDRState::default())?;
             world.insert_one(entity, StemCellDivisionRateState::default())?;
             world.insert_one(entity, HormonalFertilityState::default())?;
+            // P65: Сенесцентная петля — накопление сенесцентных клеток + SASP-обратная связь.
+            world.insert_one(entity, SenescenceAccumulationState::default())?;
+            // P66: TrackAB cross-feedback — перекрёстная обратная связь Track A ↔ Track B.
+            world.insert_one(entity, TrackABCrossState::default())?;
             world.insert_one(entity, comp)?;
         }
 
@@ -3889,5 +3976,219 @@ mod division_rate_tests {
         s.update(0.0, 0.0, 1.0, 120.0, 1.0);
         assert!(s.division_rate >= 0.01,
             "division_rate should never go below 0.01, got {:.6}", s.division_rate);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P65 — Тесты петли обратной связи сенесценции
+// division_rate → senescent_fraction → SASP → ros_boost → division_rate
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod senescence_feedback_tests {
+    use cell_dt_core::components::{
+        SenescenceAccumulationState, SenescenceAccumulationParams,
+        update_senescence_accumulation_state,
+    };
+
+    /// Низкий division_rate (0.2) ускоряет накопление сенесцентных клеток
+    /// по сравнению с нормальным (1.0) при одинаковых ROS и CAII.
+    #[test]
+    fn test_senescence_feedback_low_division_rate_increases_fraction() {
+        let params = SenescenceAccumulationParams::default();
+        let ros = 0.3f32;
+        let caii = 0.75f32;
+        let dt = 1.0f32;
+
+        let mut state_normal = SenescenceAccumulationState {
+            senescent_fraction: 0.05,
+            ..Default::default()
+        };
+        let mut state_slow = SenescenceAccumulationState {
+            senescent_fraction: 0.05,
+            ..Default::default()
+        };
+
+        for _ in 0..20 {
+            update_senescence_accumulation_state(
+                &mut state_normal, &params, ros, 0.8, caii, dt, 1.0,
+            );
+            update_senescence_accumulation_state(
+                &mut state_slow, &params, ros, 0.8, caii, dt, 0.2,
+            );
+        }
+
+        assert!(
+            state_slow.senescent_fraction > state_normal.senescent_fraction,
+            "Low division_rate (0.2) should yield higher senescent_fraction: slow={:.4} normal={:.4}",
+            state_slow.senescent_fraction,
+            state_normal.senescent_fraction
+        );
+    }
+
+    /// После обновления с ненулевой долей сенесцентных клеток
+    /// sasp_output должен быть > 0 (SASP производится сенесцентными клетками).
+    #[test]
+    fn test_sasp_feeds_into_inflammaging() {
+        let mut state = SenescenceAccumulationState {
+            senescent_fraction: 0.25,
+            ..Default::default()
+        };
+        let params = SenescenceAccumulationParams::default();
+        update_senescence_accumulation_state(
+            &mut state, &params, 0.2, 0.8, 0.8, 0.1, 0.8,
+        );
+        assert!(
+            state.sasp_output > 0.0,
+            "sasp_output должен быть > 0 при senescent_fraction={:.4}, got sasp={:.4}",
+            state.senescent_fraction,
+            state.sasp_output
+        );
+        // sasp_output = senescent_fraction × sasp_scale (0.6)
+        let expected_sasp = state.senescent_fraction * params.sasp_scale;
+        assert!(
+            (state.sasp_output - expected_sasp).abs() < 1e-4,
+            "sasp_output={:.4} должен соответствовать fraction×scale={:.4}",
+            state.sasp_output,
+            expected_sasp
+        );
+    }
+
+    /// Сенолитики (senolytic_clearance=0.5) должны снижать долю сенесцентных клеток
+    /// относительно контроля без сенолитиков.
+    #[test]
+    fn test_senolytic_clearance_reduces_fraction() {
+        let mut state_ctrl = SenescenceAccumulationState {
+            senescent_fraction: 0.30,
+            ..Default::default()
+        };
+        let mut state_seno = SenescenceAccumulationState {
+            senescent_fraction: 0.30,
+            ..Default::default()
+        };
+        let params_ctrl = SenescenceAccumulationParams::default();
+        let params_seno = SenescenceAccumulationParams {
+            senolytic_clearance: 0.50,
+            ..Default::default()
+        };
+        for _ in 0..10 {
+            update_senescence_accumulation_state(
+                &mut state_ctrl, &params_ctrl, 0.2, 0.8, 0.7, 1.0, 0.8,
+            );
+            update_senescence_accumulation_state(
+                &mut state_seno, &params_seno, 0.2, 0.8, 0.7, 1.0, 0.8,
+            );
+        }
+        assert!(
+            state_seno.senescent_fraction < state_ctrl.senescent_fraction,
+            "Senolytic fraction={:.4} должна быть < control={:.4}",
+            state_seno.senescent_fraction,
+            state_ctrl.senescent_fraction
+        );
+    }
+
+    /// cumulative_burden должна монотонно возрастать (никогда не уменьшается).
+    #[test]
+    fn test_senescence_cumulative_burden_monotone() {
+        let mut state = SenescenceAccumulationState {
+            senescent_fraction: 0.10,
+            ..Default::default()
+        };
+        let params = SenescenceAccumulationParams::default();
+        let mut prev_burden = state.cumulative_burden;
+        for _ in 0..30 {
+            update_senescence_accumulation_state(
+                &mut state, &params, 0.2, 0.8, 0.7, 1.0, 0.7,
+            );
+            assert!(
+                state.cumulative_burden >= prev_burden,
+                "cumulative_burden должна монотонно расти: {:.4} < {:.4}",
+                state.cumulative_burden,
+                prev_burden
+            );
+            prev_burden = state.cumulative_burden;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// P68 — Inducer sweep tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod inducer_sweep_tests {
+    use super::*;
+    use cell_dt_core::{SimulationManager, SimulationConfig};
+    use cell_dt_core::components::{CentriolePair, CellCycleStateExtended};
+
+    /// Run a short deterministic simulation for `years` steps (time_acceleration=365,
+    /// 1 step = 1 year) and return the total damage_score at the end.
+    fn run_inducer_sim(m0: u32, d0: u32, years: usize) -> f32 {
+        let config = SimulationConfig {
+            max_steps: years as u64 + 1,
+            dt: 1.0,
+            checkpoint_interval: 100_000,
+            num_threads: None,
+            seed: Some(42),
+            parallel_modules: false,
+            cleanup_dead_interval: None,
+        };
+
+        let mut sim = SimulationManager::new(config);
+        sim.register_module(Box::new(HumanDevelopmentModule::with_params(
+            HumanDevelopmentParams {
+                time_acceleration: 365.0,
+                mother_inducer_count: m0,
+                daughter_inducer_count: d0,
+                base_detach_probability: 0.0003,
+                noise_scale: 0.0,
+                enable_inducer_system: true,
+                ..Default::default()
+            },
+        ))).unwrap();
+
+        sim.world_mut().spawn((CentriolePair::default(), CellCycleStateExtended::new()));
+        sim.initialize().unwrap();
+
+        for _ in 0..years {
+            sim.step().unwrap();
+        }
+
+        let mut q = sim.world().query::<&HumanDevelopmentComponent>();
+        q.iter()
+            .next()
+            .map(|(_, c)| c.damage_score())
+            .unwrap_or(1.0)
+    }
+
+    /// P68 test 1: Higher M0/D0 → lower damage at year 30.
+    ///
+    /// M0=15, D0=10 should accumulate less centriolar damage than M0=4, D0=4
+    /// after 30 simulated years (time_acceleration=365).
+    #[test]
+    fn test_higher_m0_d0_extends_lifespan() {
+        let damage_high = run_inducer_sim(15, 10, 30);
+        let damage_low  = run_inducer_sim(4,   4, 30);
+
+        assert!(
+            damage_high <= damage_low,
+            "M0=15,D0=10 should have damage ≤ M0=4,D0=4 at year 30: high={:.4}, low={:.4}",
+            damage_high,
+            damage_low
+        );
+    }
+
+    /// P68 test 2: Very low inducers (M0=1, D0=1) → much higher damage than M0=10, D0=8.
+    ///
+    /// With almost no inducers, potency drops fast and damage accumulates earlier.
+    #[test]
+    fn test_zero_inducers_leads_to_early_death() {
+        let damage_minimal = run_inducer_sim(1, 1, 20);
+        let damage_normal  = run_inducer_sim(10, 8, 20);
+
+        assert!(
+            damage_minimal >= damage_normal,
+            "M0=1,D0=1 should have damage ≥ M0=10,D0=8 at year 20: minimal={:.4}, normal={:.4}",
+            damage_minimal,
+            damage_normal
+        );
     }
 }

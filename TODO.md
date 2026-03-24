@@ -134,7 +134,7 @@
 ### 🟢 Долгосрочно
 
 - [ ] **P69: CytoplasmQCState модуль** — QC-компартментализация при делении (p56)
-- [ ] **P70: Пространственный O₂-щит** — perinuclear_density (P9)
+- [ ] **P70: Пространственный O₂-щит** — pericentriolar_density (P9)
 - [ ] **Web demo** — WASM сборка egui для браузера (eframe поддерживает wasm32)
 - [ ] **Python bindings docs** — документация cell_dt_python + примеры Jupyter
 
@@ -1402,11 +1402,11 @@ base_ros_damage_rate     -0.7       +0.7     Наименее чувствите
 **Проблема:** `mito_shield` — скаляр, игнорирует пространственную структуру
 митохондриальной сети вокруг центросомы.
 
-- [x] **`MitochondrialState.perinuclear_density: f32`** — плотность перинуклеарного кластера
+- [x] **`MitochondrialState.pericentriolar_density: f32`** — плотность перицентриолярного кластера
   `= fusion_index×0.70 + (1−ros_production)×0.30`; fusion → компактный кластер, ROS → фрагментация
-- [x] **Интегрировано в `human_development_module`:** `mito_shield = mito_shield_contribution + perinuclear_density×0.15`
+- [x] **Интегрировано в `human_development_module`:** `mito_shield = mito_shield_contribution + pericentriolar_density×0.15`
   Добавляет пространственный барьер диффузии O₂ поверх скалярного щита (max +15%)
-- [x] Default: `perinuclear_density = 1.0` (молодая клетка — плотный перинуклеарный кластер)
+- [x] Default: `pericentriolar_density = 1.0` (молодая клетка — плотный перицентриолярный кластер)
 
 ---
 

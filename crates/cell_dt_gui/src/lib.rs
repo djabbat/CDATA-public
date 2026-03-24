@@ -2591,12 +2591,12 @@ impl ConfigApp {
 
         // --- Track E: Mitochondrial shield ---
         ui.collapsing("🔋 Трек E — Митохондрии (MitochondrialState)", |ui| {
-            ui.label("мтДНК мутации → ROS↑ → fusion↓ → perinuclear_density↓ → mito_shield↓ → O₂ проникает к центриолям");
+            ui.label("мтДНК мутации → ROS↑ → fusion↓ → pericentriolar_density↓ → mito_shield↓ → O₂ проникает к центриолям");
             ui.add_space(4.0);
             ui.label("Формулы:");
             ui.label("  ros_production  = mtdna_mutations×0.60 + (1−fusion_index)×0.25 + damage_ros×0.10");
             ui.label("  fusion_index    -= ros_production×0.05 − mitophagy_flux×0.03  (шаг)");
-            ui.label("  perinuclear_density = fusion_index×0.70 + (1−ros_production)×0.30");
+            ui.label("  pericentriolar_density = fusion_index×0.70 + (1−ros_production)×0.30");
             ui.label("  mito_shield     = fusion_index×0.40 + membrane_potential×0.35 + (1−ros_production)×0.25");
             ui.add_space(2.0);
             ui.label("Интеграция с центриолями:");
@@ -2665,7 +2665,7 @@ impl ConfigApp {
             ui.label("  B — Веретено: spindle_fidelity↓ → симм. деление → истощение пула");
             ui.label("  C — Теломеры: укорачивание → Хейфлик G1-арест");
             ui.label("  D — Эпигенетика: methylation_age += dt × (1 + damage × 0.5)");
-            ui.label("  E — Митохондрии: мтДНК мутации → ROS↑ → fusion↓ → perinuclear_density↓ → mito_shield↓");
+            ui.label("  E — Митохондрии: мтДНК мутации → ROS↑ → fusion↓ → pericentriolar_density↓ → mito_shield↓");
             ui.label("  F — Темп деления: 5 молекулярных тормозов → division_rate↓");
             ui.label("  + Миелоидный: spindle↓ + cilia↓ + ROS↑ → PU.1 > Ikaros → воспаление");
             ui.add_space(2.0);

@@ -26,6 +26,17 @@ pub struct CdataRecord {
     /// Frailty = 1 − functional_capacity
     pub frailty: f32,
     pub phenotype_count: usize,
+    // P67: PTM-траектории
+    /// Карбонилирование белков (окислительный стресс) [0..1]
+    pub ptm_carbonylation: f32,
+    /// Гиперацетилирование тубулина [0..1]
+    pub ptm_hyperacetylation: f32,
+    /// Агрегаты белков (CPAP, CEP290) [0..1]
+    pub ptm_aggregation: f32,
+    /// Нарушение фосфорилирования (PLK4, NEK2) [0..1]
+    pub ptm_phospho_dysreg: f32,
+    /// Потеря придатков = 1 − mean(cep164, cep89, ninein, cep170) [0..1]
+    pub ptm_appendage_loss: f32,
 }
 
 impl CdataRecord {
@@ -34,6 +45,8 @@ impl CdataRecord {
             "step", "entity_id", "tissue", "age_years", "stage",
             "damage_score", "myeloid_bias", "spindle_fidelity",
             "ciliary_function", "frailty", "phenotype_count",
+            "ptm_carbonylation", "ptm_hyperacetylation", "ptm_aggregation",
+            "ptm_phospho_dysreg", "ptm_appendage_loss",
         ]
     }
 
@@ -50,6 +63,11 @@ impl CdataRecord {
             format!("{:.6}", self.ciliary_function),
             format!("{:.6}", self.frailty),
             self.phenotype_count.to_string(),
+            format!("{:.6}", self.ptm_carbonylation),
+            format!("{:.6}", self.ptm_hyperacetylation),
+            format!("{:.6}", self.ptm_aggregation),
+            format!("{:.6}", self.ptm_phospho_dysreg),
+            format!("{:.6}", self.ptm_appendage_loss),
         ]
     }
 }
@@ -90,6 +108,11 @@ impl CdataExporter {
             .query::<(&HumanDevelopmentComponent, Option<&MyeloidShiftComponent>)>()
             .iter()
         {
+            let dam = &comp.centriolar_damage;
+            let appendage_loss = 1.0 - (dam.cep164_integrity
+                + dam.cep89_integrity
+                + dam.ninein_integrity
+                + dam.cep170_integrity) / 4.0;
             let record = CdataRecord {
                 step,
                 entity_id: entity.to_bits().get(),
@@ -98,10 +121,15 @@ impl CdataExporter {
                 stage: format!("{:?}", comp.stage),
                 damage_score: comp.damage_score(),
                 myeloid_bias: myeloid_opt.map_or(0.0, |m| m.myeloid_bias),
-                spindle_fidelity: comp.centriolar_damage.spindle_fidelity,
-                ciliary_function: comp.centriolar_damage.ciliary_function,
+                spindle_fidelity: dam.spindle_fidelity,
+                ciliary_function: dam.ciliary_function,
                 frailty: comp.frailty(),
                 phenotype_count: comp.active_phenotypes.len(),
+                ptm_carbonylation:    dam.protein_carbonylation,
+                ptm_hyperacetylation: dam.tubulin_hyperacetylation,
+                ptm_aggregation:      dam.protein_aggregates,
+                ptm_phospho_dysreg:   dam.phosphorylation_dysregulation,
+                ptm_appendage_loss:   appendage_loss,
             };
             self.buffer.push(record);
         }
@@ -153,4 +181,57 @@ pub fn write_cdata_csv(path: impl AsRef<Path>, records: &[CdataRecord]) -> IoRes
     }
     wtr.flush()?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// P67: тесты PTM-колонок в CdataRecord
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod ptm_tests {
+    use super::*;
+
+    fn make_ptm_record(carb: f32, hyper: f32, aggr: f32, phospho: f32, app_loss: f32) -> CdataRecord {
+        CdataRecord {
+            step: 1,
+            entity_id: 1,
+            tissue: "Blood".to_string(),
+            age_years: 40.0,
+            stage: "Adult".to_string(),
+            damage_score: 0.3,
+            myeloid_bias: 0.2,
+            spindle_fidelity: 0.8,
+            ciliary_function: 0.9,
+            frailty: 0.1,
+            phenotype_count: 0,
+            ptm_carbonylation: carb,
+            ptm_hyperacetylation: hyper,
+            ptm_aggregation: aggr,
+            ptm_phospho_dysreg: phospho,
+            ptm_appendage_loss: app_loss,
+        }
+    }
+
+    #[test]
+    fn test_ptm_csv_headers_include_all_five_columns() {
+        let headers = CdataRecord::csv_headers();
+        assert!(headers.contains(&"ptm_carbonylation"),    "missing ptm_carbonylation");
+        assert!(headers.contains(&"ptm_hyperacetylation"), "missing ptm_hyperacetylation");
+        assert!(headers.contains(&"ptm_aggregation"),      "missing ptm_aggregation");
+        assert!(headers.contains(&"ptm_phospho_dysreg"),   "missing ptm_phospho_dysreg");
+        assert!(headers.contains(&"ptm_appendage_loss"),   "missing ptm_appendage_loss");
+        // Ensure the 5 PTM columns are present (16 total: 11 original + 5 new)
+        assert_eq!(headers.len(), 16);
+    }
+
+    #[test]
+    fn test_ptm_appendage_loss_serializes_correctly() {
+        let rec = make_ptm_record(0.12, 0.05, 0.08, 0.03, 0.25);
+        let row = rec.to_csv_record();
+        // Headers order: ..., ptm_carbonylation(11), ptm_hyperacetylation(12),
+        //                     ptm_aggregation(13), ptm_phospho_dysreg(14), ptm_appendage_loss(15)
+        assert_eq!(row.len(), 16);
+        assert!(row[11].starts_with("0.120"), "carbonylation mismatch: {}", row[11]);
+        assert!(row[15].starts_with("0.250"), "appendage_loss mismatch: {}", row[15]);
+    }
 }

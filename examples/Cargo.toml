@@ -117,3 +117,7 @@ path = "src/bin/inducer_hypothesis_example.rs"
 [[bin]]
 name = "interspecies_example"
 path = "src/bin/interspecies_example.rs"
+
+[[bin]]
+name = "inducer_sweep_example"
+path = "src/bin/inducer_sweep_example.rs"

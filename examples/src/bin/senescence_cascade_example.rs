@@ -55,14 +55,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            update_senescence_accumulation_state(
-                &mut state, &params, ros_level, 0.8, caii, dt,
-            );
-
-            // Приблизительная division rate: снижается с сенесценцией и возрастом
-            let division_rate = (1.0 - state.senescent_fraction * 0.5)
-                * (1.0 - progress * 0.40)
+            // division_rate approximated: decreases with age and senescence
+            let approx_div_rate = (1.0 - state.senescent_fraction * 0.5)
+                * (1.0 - progress * 0.40).max(0.0)
                 * caii;
+            update_senescence_accumulation_state(
+                &mut state, &params, ros_level, 0.8, caii, dt, approx_div_rate,
+            );
 
             // Вывод каждые 10 лет
             if age % 10 == 0 {
@@ -71,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     state.senescent_fraction * 100.0,
                     state.sasp_output,
                     state.niche_regenerative_capacity,
-                    division_rate,
+                    approx_div_rate,
                     scenario
                 );
                 csv_rows.push(format!(
@@ -80,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     state.senescent_fraction,
                     state.sasp_output,
                     state.niche_regenerative_capacity,
-                    division_rate
+                    approx_div_rate
                 ));
             }
         }

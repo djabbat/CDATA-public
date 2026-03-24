@@ -142,7 +142,7 @@ fn print_state(sim: &SimulationManager, year: u32) {
         sum_mito_ros  += mito.ros_production;
         sum_fusion    += mito.fusion_index;
         sum_shield    += mito.mito_shield_contribution;
-        sum_peridens  += mito.perinuclear_density;
+        sum_peridens  += mito.pericentriolar_density;
     }
     for (_, shift) in world.query::<&MyeloidShiftComponent>().iter() {
         sum_mbias += shift.myeloid_bias;

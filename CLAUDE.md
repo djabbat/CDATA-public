@@ -306,7 +306,7 @@ RUST_LOG=debug cargo run --bin human_development_example
 ### Долгосрочно
 
 6. **[P7] Многотканевая модель** ✅ РЕАЛИЗОВАНО — системный SASP, IGF-1/GH, multi_tissue_example.rs
-7. **[P9] Пространственный O₂-щит** — `mito_shield` = скаляр; нужен `perinuclear_density`
+7. **[P9] Пространственный O₂-щит** — `mito_shield` = скаляр; нужен `pericentriolar_density`
 
 Полный список: см. **RECOMMENDATION.md § 10**.
 
