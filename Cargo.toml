@@ -15,6 +15,9 @@ members = [
     "crates/cell_dt_modules/human_development_module",
     "crates/cell_dt_modules/myeloid_shift_module",
     "crates/cell_dt_modules/mitochondrial_module",
+    "crates/cell_dt_modules/food_water_module",
+    "crates/cell_dt_modules/sleep_module",
+    "crates/cell_dt_modules/breathing_module",
     "examples",
 ]
 

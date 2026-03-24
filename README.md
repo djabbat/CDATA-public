@@ -699,7 +699,7 @@ CDATA positions the **cell as the autonomous unit** — the central level (0).
 All other levels are either sub-structures (negative) or supra-cellular context (positive).
 
 ```
-+5  Noosphere     — interventions, evidence base, AI integration (AIM)
++5  Ecosphere     — interventions, evidence base, AI integration (AIM)
 +4  Society       — social stress, loneliness → cortisol → ROS
 +3  Organism      — OrganismState: frailty, cognitive, HPA axis, metabolism
 +2  Organs        — OrganState: 11 organs, poly-organ failure criterion  ✅
@@ -728,7 +728,7 @@ All other levels are either sub-structures (negative) or supra-cellular context 
 | +2 | Organs | ✅ | OrganState (11 organs), poly-organ failure, cardiac oxygen delivery |
 | +3 | Organism | ✅ | OrganismState, HPAAxisState, MetabolicPhenotypeState |
 | +4 | Society | ❌ | SocialStressInput TODO |
-| +5 | Noosphere | ✅ partial | Interventions (P11); AIM integration TODO |
+| +5 | Ecosphere | ✅ partial | Interventions (P11); AIM integration TODO |
 
 ### GUI Architecture
 
@@ -819,7 +819,7 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
             Информационная оболочка (Вернадский). Культура, наука,
             медицина как управляющие сигналы на биологию.
             CDATA: интервенции — сенолитики, NAD+, образ жизни →
-            параметры модели меняются извне ноосферой
+            параметры модели меняются извне экосферой
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 УРОВЕНЬ +4  СОЦИУМ
             Сеть индивидов. Стресс ↔ кортизол ↔ ROS ↔ CDATA.
@@ -898,7 +898,7 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 | Орган | 10⁷ – 10⁸ с | OrganState ✅ — 11 органов, полиорганная недостаточность |
 | Организм | 10⁸ – 10⁹ с | OrganismState: frailty, смерть |
 | Социум | 10⁸ – 10¹⁰ с | social_stress → параметр ROS |
-| Ноосфера | 10⁹ – 10¹¹ с | Интервенции из базы знаний |
+| Экосфера | 10⁹ – 10¹¹ с | Интервенции из базы знаний |
 | Экосфера | 10¹⁰ – 10¹² с | Эволюционные ограничения lifespan |
 
 ### Что CDATA моделирует vs что нужно добавить
@@ -941,18 +941,22 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 ### 12.1 Layout — five zones
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  TOP PANEL (2 rows)                                             │
-│  Row 1: 🧬 title                    language ▾   ❌ Exit        │
-│  Row 2: ↩️Undo  ↪️Redo │ Load Save Presets 🐍Export Validate   │
-├──────────────────┬──────────────────────────────┬───────────────┤
-│                  │                              │               │
-│   LEFT PANEL     │     CENTRAL PANEL            │  RIGHT PANEL  │
-│   (tab list)     │  (tab content / dashboard)   │  (realtime)   │
-│                  │                              │               │
-├──────────────────┴──────────────────────────────┴───────────────┤
-│  BOTTOM PANEL: ▶ Run Simulation  │  ← Back to settings          │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  TOP PANEL (2 rows)                                                             │
+│  Row 1: 🧬 title                              language ▾   ❌ Exit              │
+│  Row 2: ↩️Undo  ↪️Redo │ Load Save Presets 🐍Export Validate                  │
+├────────────────────┬──────────────────────────┬──────────────────────────────────┤
+│                    │                          │                                  │
+│   LEFT PANEL       │   CENTRAL PANEL          │   RIGHT PANEL (~1020 px)         │
+│   (~220 px)        │                          │                                  │
+│   🧬 CDATA         │  Lineage tree            │  Parameter controls for          │
+│   Hierarchy        │  ────────────────────    │  selected hierarchy level        │
+│   (-5 → +5)        │  🔒 Safe Adult SCs        │  (full module detail)            │
+│   click to select  │  (vertical cards)        │                                  │
+│                    │                          │                                  │
+├────────────────────┴──────────────────────────┴──────────────────────────────────┤
+│  BOTTOM PANEL: ▶ Run Simulation  │  ← Back to settings  │  metrics bar           │
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -982,33 +986,33 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 
 ---
 
-### 12.3 Left panel — tab navigation
+### 12.3 Left panel — CDATA Hierarchy navigation (~220 px)
 
-Nine tabs are listed vertically. The active tab is highlighted. Clicking a tab also records a history snapshot.
+Lists the 11 biological hierarchy levels (-5 → +5). Clicking a level selects it and opens its parameter controls in the right panel.
 
-| Icon | Tab name | Module |
-|------|----------|--------|
-| ⚙️ | Simulation | `SimulationConfig` |
-| 🔬 | Centriole | `CentrioleConfig` |
-| 🔄 | Cell Cycle | `CellCycleConfig` |
-| 🧬 | Transcriptome | `TranscriptomeConfig` |
-| ⚖️ | Asymmetric Division | `AsymmetricDivisionConfig` |
-| 🌱 | Stem Hierarchy | `StemHierarchyConfig` |
-| 💾 | I/O | `IOConfig` |
-| 📊 | Visualization | `VisualizationConfig` |
-| 🔴 | CDATA / Aging | `CdataGuiConfig` |
+| Level | Tab | Components |
+|-------|-----|------------|
+| -5 | 🌀 Ze Field | `ZeHealthState` |
+| -4 | ⚛️ Atoms | `ThermodynamicState` |
+| -3 | 🔬 Molecules | `ROSCascadeState · ATPEnergyState · ChromatinState` |
+| -2 | 🏛️ Structures | `MicrotubuleState · NuclearEnvelope · MembraneState` |
+| -1 | 🔋 Organelles | `MitochondrialState · LysosomeState · ERStressState` |
+|  0 | ⭐ Cell *(default)* | `CentriolarDamageState · CloneEpigeneticState` |
+| +1 | 🔴 Tissues | `TissueState · ECM · VascularNicheState` |
+| +2 | 🫀 Organs | `OrganState(11) · poly-organ failure` |
+| +3 | 🧍 Organism | `OrganismState · HPAAxisState` |
+| +4 | 👥 Society | `SocialStressInput (planned)` |
+| +5 | 🌍 Ecosphere | `Interventions · AIM integration` |
 
 ---
 
-### 12.4 Right panel — real-time visualization
+### 12.4 Right panel — parameter controls (~1020 px, resizable)
 
-A collapsible side panel with a checkbox **Enable**. When enabled, the GUI continuously snapshots selected parameter values (up to 100 snapshots in a ring buffer) and displays the current value next to each parameter name. Parameters tracked by default:
+Displays the full parameter set for the currently selected hierarchy level. Content changes immediately on every click in the left panel. Includes:
 
-- `simulation.max_steps`
-- `centriole.acetylation_rate`
-- `cell_cycle.base_cycle_time`
-
-An **⚙️ Settings** collapsible inside the panel allows adding more parameters to the list.
+- Sliders, checkboxes, combo-boxes for all module parameters
+- Collapsing sections per sub-module
+- 📊 CDATA Impact Showcase (pre-computed aging curves) accessible from the Organism (+3) level
 
 ---
 
@@ -1055,7 +1059,36 @@ Values in **orange-red** indicate a warning threshold exceeded. Full formula spe
 
 ---
 
-### 12.6 Central panel — tab contents
+### 12.6 Central panel — lineage tree + Safe Adult SCs
+
+**Top (scrollable):** Interactive stem cell lineage tree. Nodes are clickable — collapse/expand branches. Each node shows: name, potency label, division rate, description. Color-coded by potency level.
+
+**Bottom (fixed strip):** 🔒 **Safe Adult Stem Cells** — 8 tissue-specific SC niches displayed as vertical cards with scroll:
+
+| Card | Tissue type | Shows |
+|------|-------------|-------|
+| BM/Blood | `TissueType::Blood` | ref div_rate · DSI · ● live (sim) |
+| Neural | `TissueType::Neural` | ref div_rate · DSI · ● live |
+| Mesenchymal | `TissueType::Connective` | ref div_rate · DSI · ● live |
+| Muscle | `TissueType::Muscle` | ref div_rate · DSI · ● live |
+| Intestinal | `TissueType::Epithelial` | ref div_rate · DSI · ● live |
+| Epidermal | `TissueType::Skin` | ref div_rate · DSI · ● live |
+| Hepatic | `TissueType::Liver` | ref div_rate · DSI · ● live |
+| Lung AT2 | `TissueType::Lung` | ref div_rate · DSI · ● live |
+
+`ref` = literature reference rate (static). `● live` = real-time per-tissue `division_rate` from `StemCellDivisionRateState` (ECS, per-tissue average). Color: green >0.6 · amber 0.3–0.6 · red <0.3. Appears only after a simulation run.
+
+**Live data source:** each of the 8 spawned ECS entities carries a distinct `TissueType`; `SimSnapshot.per_tissue_div_rate[8]` accumulates their `division_rate` values separately each snapshot interval.
+
+---
+
+### 12.7 Central panel — simulation dashboard
+
+When a simulation is running or has completed, the central panel switches to a live dashboard (scrollable). Returns to the lineage tree via `← Back to settings`.
+
+---
+
+### 12.6b Legacy tab contents
 
 #### ⚙️ Simulation tab
 

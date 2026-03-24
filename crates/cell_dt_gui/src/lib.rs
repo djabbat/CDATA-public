@@ -15,6 +15,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use std::sync::mpsc;
 
+use stem_cell_hierarchy_module::NicheCatalog;
+
 // Simulation engine
 use cell_dt_core::{
     SimulationManager,
@@ -24,6 +26,8 @@ use cell_dt_core::{
     EpigeneticClockState,
     CentriolePair,
     CellCycleStateExtended,
+    StemCellDivisionRateState,
+    TissueType,
 };
 use human_development_module::{HumanDevelopmentModule, HumanDevelopmentComponent};
 use myeloid_shift_module::{MyeloidShiftModule, MyeloidShiftComponent};
@@ -32,6 +36,70 @@ use centriole_module::CentrioleModule;
 use cell_cycle_module::CellCycleModule;
 
 // ==================== DATA STRUCTURES ====================
+
+/// Ecosphere-level environmental conditions (+8).
+/// These initial conditions are fed into food_water_module, sleep_module, breathing_module
+/// at simulation start and remain constant throughout (or can be updated via interventions).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct EcosphereConditions {
+    // ─── Food & Water ───
+    /// Caloric balance: -0.5 = severe CR, 0.0 = maintenance, +0.5 = excess
+    pub caloric_balance: f32,
+    /// Diet quality [0..1]: 1.0 = Mediterranean / whole-foods
+    pub diet_quality: f32,
+    /// Hydration [0..1]: 1.0 = optimal (2–3L/day)
+    pub hydration: f32,
+    /// Protein quality [0..1]: amino acid completeness + antioxidant load
+    pub protein_quality: f32,
+
+    // ─── Sleep ───
+    /// Sleep quality [0..1]: 1.0 = 8h restorative sleep
+    pub sleep_quality: f32,
+    /// Circadian alignment [0..1]: 1.0 = regular schedule, no shift work
+    pub circadian_alignment: f32,
+
+    // ─── Breathing ───
+    /// O₂ fraction in inspired air [0..1]: sea level = 0.21, 3000m = 0.14
+    pub o2_fraction: f32,
+    /// Breathing quality [0..1]: 1.0 = slow diaphragmatic (pranayama)
+    pub breathing_quality: f32,
+    /// Air pollution index [0..1]: 0 = clean, 1.0 = heavy urban pollution
+    pub pollution_index: f32,
+}
+
+impl Default for EcosphereConditions {
+    fn default() -> Self {
+        Self {
+            // Average modern Western lifestyle
+            caloric_balance:      0.05,  // slight caloric excess
+            diet_quality:         0.60,
+            hydration:            0.75,
+            protein_quality:      0.65,
+            sleep_quality:        0.65,  // ~6.5h modern average
+            circadian_alignment:  0.70,
+            o2_fraction:          0.21,  // sea level
+            breathing_quality:    0.60,
+            pollution_index:      0.20,  // mild urban
+        }
+    }
+}
+
+impl EcosphereConditions {
+    pub fn optimal() -> Self {
+        Self {
+            caloric_balance: -0.10, diet_quality: 0.90, hydration: 0.95, protein_quality: 0.85,
+            sleep_quality: 0.90, circadian_alignment: 0.90,
+            o2_fraction: 0.21, breathing_quality: 0.85, pollution_index: 0.05,
+        }
+    }
+    pub fn poor() -> Self {
+        Self {
+            caloric_balance: 0.25, diet_quality: 0.30, hydration: 0.50, protein_quality: 0.40,
+            sleep_quality: 0.35, circadian_alignment: 0.40,
+            o2_fraction: 0.21, breathing_quality: 0.40, pollution_index: 0.60,
+        }
+    }
+}
 
 /// Application state
 #[derive(Clone, Serialize, Deserialize)]
@@ -51,7 +119,10 @@ pub struct ConfigAppState {
     pub viz: VisualizationConfig,
     pub cdata: CdataGuiConfig,
     pub mitochondrial: MitochondrialConfig,
-    
+
+    // Ecosphere (+8) — environmental conditions for food/water, sleep, breathing modules
+    pub ecosphere: EcosphereConditions,
+
     // Language
     pub language: Lang,
 
@@ -95,12 +166,13 @@ impl Default for ConfigAppState {
             viz: VisualizationConfig::default(),
             cdata: CdataGuiConfig::default(),
             mitochondrial: MitochondrialConfig::default(),
+            ecosphere: EcosphereConditions::default(),
             language: Lang::En,
             simulation_running: false,
             sim_progress: 0.0,
             sim_elapsed_steps: 0,
             show_impact_panel: false,
-            selected_tab: Tab::Simulation,
+            selected_tab: Tab::Cell,
             show_about: false,
             show_save_dialog: false,
             show_load_dialog: false,
@@ -187,6 +259,17 @@ pub struct SimSnapshot {
     pub telomere_length: f32,
     pub methylation_age: f32,
     pub is_alive: bool,
+    /// Protein aggregation index from CentriolarDamageState [0..1]
+    pub protein_aggregation: f32,
+    /// Division rate from StemCellDivisionRateState [0..1] — global average
+    pub division_rate: f32,
+    /// Per-tissue division rates: [Blood, Neural, Connective, Muscle, Epithelial, Skin, Liver, Lung]
+    /// f32::NAN if no entity of that tissue type exists
+    pub per_tissue_div_rate: [f32; 8],
+    /// Centrosomal Damage Score (CDS) = total_damage_score() [0..1]
+    pub centrosomal_damage: f32,
+    /// Biological age (composite): 0.4×(methyl/120) + 0.3×(1-telo) + 0.3×frailty → years
+    pub biological_age: f32,
 }
 
 // ==================== PARAMETER VALIDATION ====================
@@ -456,47 +539,81 @@ impl PythonExporter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tab {
-    Simulation,
+    ZeField,        // -5
+    Atoms,          // -4
+    Molecules,      // -3
+    Cytoskeleton,   // -2
+    Organelles,     // -1
+    Cell,           //  0 ← DEFAULT (★)
+    Tissues,        // +1
+    Organs,         // +2
+    Organism,       // +3
+    Society,        // +4
+    Ecosphere,      // +5
+    // Legacy tabs (kept for backward compat)
+    Molecular,
+    Transcriptome,
+    Mitochondrial,
     Centriole,
     CellCycle,
-    Transcriptome,
-    Asymmetric,
+    Division,
     StemHierarchy,
-    IO,
-    Visualization,
-    Cdata,
-    Mitochondrial,
+    Niche,
+    Tissue,
+    System,
 }
 
 impl Tab {
     pub fn name(&self) -> &'static str {
         match self {
-            Tab::Simulation     => "⚙️ Simulation",
-            Tab::Centriole      => "🔬 Centriole",
-            Tab::CellCycle      => "🔄 Cell Cycle",
-            Tab::Transcriptome  => "🧬 Transcriptome",
-            Tab::Asymmetric     => "⚖️ Asymmetric Division",
-            Tab::StemHierarchy  => "🌱 Stem Hierarchy",
-            Tab::IO             => "💾 I/O",
-            Tab::Visualization  => "📊 Visualization",
-            Tab::Cdata          => "🔴 CDATA / Aging",
-            Tab::Mitochondrial  => "🔋 Mitochondria",
+            Tab::ZeField      => "🌀 Ze Field",
+            Tab::Atoms        => "⚛️ Atoms",
+            Tab::Molecules    => "🔬 Molecules",
+            Tab::Cytoskeleton => "🏛️ Structures",
+            Tab::Organelles   => "🔋 Organelles",
+            Tab::Cell         => "⭐ Cell",
+            Tab::Tissues      => "🔴 Tissues",
+            Tab::Organs       => "🫀 Organs",
+            Tab::Organism     => "🧍 Organism",
+            Tab::Society      => "👥 Society",
+            Tab::Ecosphere    => "🌍 Ecosphere",
+            Tab::Molecular     => "🔬 Molecular",
+            Tab::Transcriptome => "🧬 Transcriptome",
+            Tab::Mitochondrial => "🔋 Mitochondrial",
+            Tab::Centriole     => "🔵 Centriole",
+            Tab::CellCycle     => "♻️ Cell Cycle",
+            Tab::Division      => "⚖️ Division",
+            Tab::StemHierarchy => "🌱 Stem Hierarchy",
+            Tab::Niche         => "🏘️ Niche / CDATA",
+            Tab::Tissue        => "🔴 Tissue / Myeloid",
+            Tab::System        => "⚙️ System",
         }
     }
 
     pub fn name_tr(&self, lang: Lang) -> &'static str {
         let tr = lang.tr();
         match self {
-            Tab::Simulation    => tr.tab_simulation,
+            Tab::ZeField      => tr.tab_ze_field,
+            Tab::Atoms        => tr.tab_atoms,
+            Tab::Molecules    => tr.tab_molecules,
+            Tab::Cytoskeleton => tr.tab_cytoskeleton,
+            Tab::Organelles   => tr.tab_organelles,
+            Tab::Cell         => tr.tab_cell,
+            Tab::Tissues      => tr.tab_tissues,
+            Tab::Organs       => tr.tab_organs,
+            Tab::Organism     => tr.tab_organism,
+            Tab::Society      => tr.tab_society,
+            Tab::Ecosphere    => tr.tab_ecosphere,
+            Tab::Molecular     => tr.tab_molecular,
+            Tab::Transcriptome => tr.tab_transcriptome,
+            Tab::Mitochondrial => tr.tab_mitochondrial,
             Tab::Centriole     => tr.tab_centriole,
             Tab::CellCycle     => tr.tab_cell_cycle,
-            Tab::Transcriptome => tr.tab_transcriptome,
-            Tab::Asymmetric    => tr.tab_asymmetric,
+            Tab::Division      => tr.tab_division,
             Tab::StemHierarchy => tr.tab_stem_hierarchy,
-            Tab::IO            => tr.tab_io,
-            Tab::Visualization => tr.tab_visualization,
-            Tab::Cdata         => tr.tab_cdata,
-            Tab::Mitochondrial => tr.tab_mitochondrial,
+            Tab::Niche         => tr.tab_niche,
+            Tab::Tissue        => tr.tab_tissue,
+            Tab::System        => tr.tab_system,
         }
     }
 }
@@ -695,6 +812,10 @@ pub struct ConfigApp {
     sim_rx: Option<mpsc::Receiver<SimSnapshot>>,
     stop_flag: Arc<AtomicBool>,
     pub sim_snapshots: Vec<SimSnapshot>,
+    /// Expanded nodes in lineage tree (by node id)
+    expanded_lineage: std::collections::HashSet<usize>,
+    /// Selected niche card in Niche Browser tab
+    selected_niche: Option<usize>,
 }
 
 impl ConfigApp {
@@ -710,6 +831,12 @@ impl ConfigApp {
             sim_rx: None,
             stop_flag: Arc::new(AtomicBool::new(false)),
             sim_snapshots: Vec::new(),
+            expanded_lineage: {
+                let mut s = std::collections::HashSet::new();
+                s.insert(0usize); // root always expanded
+                s
+            },
+            selected_niche: None,
         }
     }
 
@@ -858,12 +985,27 @@ impl ConfigApp {
                 "spindle_nonlinearity_exponent":cdata.spindle_nonlinearity_exponent,
             })).ok();
 
-            // Spawn 5 stem-cell niche entities (Blood × 2, Neural × 2, Epithelial)
+            // Spawn 8 stem-cell niche entities with distinct TissueTypes (one per ADULT_SC_SAFE)
             // Must be done BEFORE initialize() so modules can process them
             {
+                use human_development_module::HumanDevelopmentComponent;
                 let world = sim.world_mut();
-                for _ in 0..5 {
-                    world.spawn((CentriolePair::default(), CellCycleStateExtended::new()));
+                let tissues = [
+                    TissueType::Blood,
+                    TissueType::Neural,
+                    TissueType::Connective,
+                    TissueType::Muscle,
+                    TissueType::Epithelial,
+                    TissueType::Skin,
+                    TissueType::Liver,
+                    TissueType::Lung,
+                ];
+                for tt in tissues {
+                    world.spawn((
+                        CentriolePair::default(),
+                        CellCycleStateExtended::new(),
+                        HumanDevelopmentComponent::for_tissue(tt),
+                    ));
                 }
             }
 
@@ -895,10 +1037,14 @@ impl ConfigApp {
                 }
 
                 let mut ros_s    = 0.0_f64;
+                let mut prot_s   = 0.0_f64;
+                let mut cds_s    = 0.0_f64;
                 let mut cds_n    = 0usize;
                 for (_, cds) in sim.world().query::<&CentriolarDamageState>().iter() {
-                    ros_s += cds.ros_level as f64;
-                    cds_n += 1;
+                    ros_s  += cds.ros_level as f64;
+                    prot_s += cds.protein_aggregates as f64;
+                    cds_s  += cds.total_damage_score() as f64;
+                    cds_n  += 1;
                 }
 
                 let mut myeloid_s = 0.0_f64;
@@ -922,19 +1068,63 @@ impl ConfigApp {
                     methyl_n += 1;
                 }
 
+                let mut divrate_s = 0.0_f64;
+                let mut divrate_n = 0usize;
+                for (_, dr) in sim.world().query::<&StemCellDivisionRateState>().iter() {
+                    divrate_s += dr.division_rate as f64;
+                    divrate_n += 1;
+                }
+
+                // Per-tissue division rates: [Blood, Neural, Connective, Muscle, Epithelial, Skin, Liver, Lung]
+                let tissue_order = [
+                    TissueType::Blood, TissueType::Neural, TissueType::Connective,
+                    TissueType::Muscle, TissueType::Epithelial, TissueType::Skin,
+                    TissueType::Liver, TissueType::Lung,
+                ];
+                let mut per_tissue_sum  = [0.0_f64; 8];
+                let mut per_tissue_cnt  = [0usize; 8];
+                for (_, (hdc, dr)) in sim.world()
+                    .query::<(&HumanDevelopmentComponent, &StemCellDivisionRateState)>()
+                    .iter()
+                {
+                    if let Some(idx) = tissue_order.iter().position(|&t| t == hdc.tissue_type) {
+                        per_tissue_sum[idx] += dr.division_rate as f64;
+                        per_tissue_cnt[idx] += 1;
+                    }
+                }
+                let mut per_tissue_div_rate = [f32::NAN; 8];
+                for i in 0..8 {
+                    if per_tissue_cnt[i] > 0 {
+                        per_tissue_div_rate[i] = (per_tissue_sum[i] / per_tissue_cnt[i] as f64) as f32;
+                    }
+                }
+
                 let n = |x: usize| if x == 0 { 1 } else { x };
+
+                let avg_frailty  = (frailty_s  / n(hdc_count) as f64) as f32;
+                let avg_telo     = (telo_s      / n(telo_n)    as f64) as f32;
+                let avg_methyl   = (methyl_s    / n(methyl_n)  as f64) as f32;
+                // Biological age composite: clock 40% + telomere loss 30% + frailty 30%
+                let bio_age = (avg_methyl * 0.4
+                    + (1.0 - avg_telo) * 120.0 * 0.3
+                    + avg_frailty * 100.0 * 0.3).clamp(0.0, 150.0);
 
                 let snap = SimSnapshot {
                     step,
                     progress: step as f32 / max_steps as f32,
                     age_years,
-                    frailty:        (frailty_s  / n(hdc_count) as f64) as f32,
-                    stem_cell_pool: (pool_s     / n(hdc_count) as f64) as f32,
-                    ros_level:      (ros_s      / n(cds_n)     as f64) as f32,
-                    myeloid_bias:   (myeloid_s  / n(ms_n)      as f64) as f32,
-                    telomere_length:(telo_s     / n(telo_n)    as f64) as f32,
-                    methylation_age:(methyl_s   / n(methyl_n)  as f64) as f32,
+                    frailty:             avg_frailty,
+                    stem_cell_pool:      (pool_s    / n(hdc_count) as f64) as f32,
+                    ros_level:           (ros_s     / n(cds_n)     as f64) as f32,
+                    myeloid_bias:        (myeloid_s / n(ms_n)      as f64) as f32,
+                    telomere_length:     avg_telo,
+                    methylation_age:     avg_methyl,
                     is_alive,
+                    protein_aggregation: (prot_s    / n(cds_n)     as f64) as f32,
+                    division_rate:       (divrate_s / n(divrate_n) as f64) as f32,
+                    centrosomal_damage:  (cds_s     / n(cds_n)     as f64) as f32,
+                    biological_age:      bio_age,
+                    per_tissue_div_rate,
                 };
 
                 let done = snap.progress >= 1.0 || !snap.is_alive;
@@ -1029,82 +1219,100 @@ impl eframe::App for ConfigApp {
             });
         });
         
-        // Left panel with tabs
-        egui::SidePanel::left("left_panel").show(ctx, |ui| {
+        // Right panel — parameter controls for selected hierarchy level
+        egui::SidePanel::right("right_panel")
+            .min_width(1020.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                let lang = self.state.language;
+                ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(2.0);
+                    ui.label(egui::RichText::new(self.state.selected_tab.name_tr(lang))
+                        .size(13.0).strong().color(Color32::from_rgb(50, 200, 130)));
+                    ui.separator();
+                    ui.add_space(2.0);
+                    match self.state.selected_tab {
+                        Tab::ZeField      => self.show_ze_field_tab(ui),
+                        Tab::Atoms        => self.show_atoms_tab(ui),
+                        Tab::Molecules    => self.show_molecules_tab(ui),
+                        Tab::Cytoskeleton => self.show_cytoskeleton_tab(ui),
+                        Tab::Organelles   => self.show_organelles_tab(ui),
+                        Tab::Cell         => self.show_cell_tab(ui),
+                        Tab::Tissues      => self.show_tissues_tab(ui),
+                        Tab::Organs       => self.show_organs_tab(ui),
+                        Tab::Organism     => self.show_organism_tab(ui),
+                        Tab::Society      => self.show_society_tab(ui),
+                        Tab::Ecosphere    => self.show_ecosphere_tab(ui),
+                        Tab::Molecular     => self.show_molecular_tab(ui),
+                        Tab::Transcriptome => self.show_transcriptome_tab(ui),
+                        Tab::Mitochondrial => self.show_mitochondrial_tab(ui),
+                        Tab::Centriole     => self.show_centriole_tab(ui),
+                        Tab::CellCycle     => self.show_cell_cycle_tab(ui),
+                        Tab::Division      => self.show_division_tab(ui),
+                        Tab::StemHierarchy => self.show_stem_hierarchy_tab(ui),
+                        Tab::Niche         => self.show_niche_tab(ui),
+                        Tab::Tissue        => self.show_tissue_tab(ui),
+                        Tab::System        => self.show_system_tab(ui),
+                    }
+                });
+            });
+
+        // Left panel — hierarchy navigation only
+        egui::SidePanel::left("left_panel")
+            .min_width(220.0)
+            .max_width(320.0)
+            .resizable(true)
+            .show(ctx, |ui| {
             let lang = self.state.language;
-            ui.vertical(|ui| {
-                ui.heading(lang.tr().sec_modules);
+            ScrollArea::vertical().show(ui, |ui| {
+                // ── Hierarchy nav ────────────────────────────────────────
+                ui.add_space(2.0);
+                ui.label(egui::RichText::new("🧬 CDATA Hierarchy").size(11.0).strong()
+                    .color(Color32::from_rgb(130, 170, 210)));
                 ui.separator();
 
-                let tabs = [
-                    Tab::Simulation,
-                    Tab::Centriole,
-                    Tab::CellCycle,
-                    Tab::Transcriptome,
-                    Tab::Mitochondrial,
-                    Tab::Asymmetric,
-                    Tab::StemHierarchy,
-                    Tab::IO,
-                    Tab::Visualization,
-                    Tab::Cdata,
+                let levels: &[(i32, Tab, &str, &str)] = &[
+                    (-5, Tab::ZeField,      "✅", "ZeHealthState"),
+                    (-4, Tab::Atoms,        "✅", "ThermodynamicState"),
+                    (-3, Tab::Molecules,    "✅", "ROSCascadeState · ATPEnergyState · ChromatinState"),
+                    (-2, Tab::Cytoskeleton, "✅", "MicrotubuleState · NuclearEnvelope · MembraneState"),
+                    (-1, Tab::Organelles,   "✅", "MitochondrialState · LysosomeState · ERStressState"),
+                    ( 0, Tab::Cell,         "⭐", "CentriolarDamageState · CloneEpigeneticState"),
+                    ( 1, Tab::Tissues,      "✅", "TissueState · ECM · VascularNicheState"),
+                    ( 2, Tab::Organs,       "✅", "OrganState(11) · poly-organ failure"),
+                    ( 3, Tab::Organism,     "✅", "OrganismState · HPAAxisState"),
+                    ( 4, Tab::Society,      "❌", "SocialStressInput (TODO)"),
+                    ( 5, Tab::Ecosphere,    "🟡", "Interventions · AIM integration"),
                 ];
 
-                for tab in tabs {
-                    if ui.selectable_value(
-                        &mut self.state.selected_tab,
-                        tab,
-                        tab.name_tr(lang),
-                    ).clicked() {
-                        self.push_history();
-                    }
-                }
-            });
-        });
-        
-        // Right panel with real-time visualization
-        egui::SidePanel::right("right_panel").show(ctx, |ui| {
-            ui.vertical(|ui| {
-                ui.heading("📈 Real-time Visualization");
-                ui.separator();
-                
-                ui.checkbox(&mut self.state.realtime_viz.enabled, "Enable");
-                
-                if self.state.realtime_viz.enabled {
-                    // Extract values and add snapshot
-                    let values = RealtimeVisualization::extract_values(&self.state);
-                    self.state.realtime_viz.add_snapshot(values, 0.0);
-                    
-                    // Display graphs
-                    for param in &self.state.realtime_viz.selected_parameters {
-                        ui.label(format!("📊 {}", param));
-                        
-                        // Collect data for graph
-                        let mut values = Vec::new();
-                        for snapshot in &self.state.realtime_viz.parameter_history {
-                            if let Some(value) = snapshot.values.get(param) {
-                                values.push(*value);
-                            }
-                        }
-                        
-                        if !values.is_empty() {
-                            // Simple line graph
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Current: {:.3}", values.last().unwrap()));
-                            });
-                        }
-                    }
-                    
-                    ui.collapsing("⚙️ Settings", |ui| {
-                        ui.label("Select parameters to display:");
-                        // Here you can add checkboxes for parameter selection
+                for &(level, tab, status, components) in levels {
+                    let selected = self.state.selected_tab == tab;
+                    let lv_str = if level >= 0 { format!("+{}", level) } else { format!("{}", level) };
+                    let lv_col = Color32::from_rgb(90, 100, 115);
+                    let sel_col = Color32::from_rgb(50, 200, 130);
+                    let sub_col = Color32::from_rgb(80, 95, 110);
+
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&lv_str).size(9.5).color(lv_col).monospace());
+                        ui.label(egui::RichText::new(status).size(11.0));
+                        let resp = ui.selectable_value(
+                            &mut self.state.selected_tab,
+                            tab,
+                            egui::RichText::new(tab.name_tr(lang))
+                                .size(12.5)
+                                .color(if selected { sel_col } else { Color32::from_rgb(200, 210, 225) }),
+                        );
+                        if resp.clicked() { self.push_history(); }
                     });
+                    ui.label(egui::RichText::new(format!("      {}", components)).size(8.5).color(sub_col));
+                    ui.add_space(1.0);
                 }
             });
         });
         
         // ======= BOTTOM PANEL — RUN SIMULATION =======
         egui::TopBottomPanel::bottom("run_panel")
-            .min_height(145.0)
+            .min_height(195.0)
             .show(ctx, |ui| {
                 let tr = self.state.language.tr();
                 ui.add_space(8.0);
@@ -1201,27 +1409,24 @@ impl eframe::App for ConfigApp {
                 self.show_metrics_bar(ui);
             });
 
-        // Central panel
-        let show_dashboard = self.state.simulation_running || self.state.show_impact_panel;
+        // Central panel — lineage tree (top) + adult SC row (bottom, fixed)
         CentralPanel::default().show(ctx, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                if show_dashboard {
+            if self.state.simulation_running || !self.sim_snapshots.is_empty() {
+                ScrollArea::vertical().show(ui, |ui| {
                     self.show_live_dashboard(ui);
-                } else {
-                    match self.state.selected_tab {
-                        Tab::Simulation    => self.show_simulation_tab(ui),
-                        Tab::Centriole     => self.show_centriole_tab(ui),
-                        Tab::CellCycle     => self.show_cell_cycle_tab(ui),
-                        Tab::Transcriptome => self.show_transcriptome_tab(ui),
-                        Tab::Mitochondrial => self.show_mitochondrial_tab(ui),
-                        Tab::Asymmetric    => self.show_asymmetric_tab(ui),
-                        Tab::StemHierarchy => self.show_stem_hierarchy_tab(ui),
-                        Tab::IO            => self.show_io_tab(ui),
-                        Tab::Visualization => self.show_visualization_tab(ui),
-                        Tab::Cdata         => self.show_cdata_tab(ui),
-                    }
-                }
-            });
+                });
+            } else {
+                let total_h = ui.available_height();
+                let sc_row_h = (total_h * 0.45).clamp(180.0, 320.0);
+                let tree_h = (total_h - sc_row_h - 6.0).max(80.0);
+                ScrollArea::vertical()
+                    .max_height(tree_h)
+                    .show(ui, |ui| {
+                        self.show_lineage_tree(ui);
+                    });
+                ui.separator();
+                self.show_adult_sc_row(ui);
+            }
         });
         
         // Dialogs
@@ -1253,6 +1458,465 @@ impl eframe::App for ConfigApp {
         if self.state.realtime_viz.enabled {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
+    }
+}
+
+// ==================== LINEAGE TREE ====================
+
+/// Static lineage node: (id, name, potency_label, description, div_rate_day, rgb)
+type LNode = (usize, &'static str, &'static str, &'static str, f32, [u8; 3]);
+
+const LINEAGE: &[LNode] = &[
+    // ── Totipotent ──────────────────────────────────────────────────────────
+    (0,  "Zygote → Morula → Blastocyst",  "Totipotent",    "All 200+ cell types; ICM + trophoblast",                1.0,  [255, 210, 60]),
+    // ── Pluripotent ─────────────────────────────────────────────────────────
+    (1,  "ICM / Epiblast",                "Pluripotent",    "3 germ layers; Oct4+/Sox2+/Nanog+",                    1.0,  [180, 100, 250]),
+    // ── Germ layers (Multipotent) ────────────────────────────────────────────
+    (2,  "Ectoderm",                      "Multipotent",    "Nervous system, skin, sense organs",                   0.5,  [80, 150, 230]),
+    (3,  "Mesoderm",                      "Multipotent",    "Blood, muscle, bone, connective tissue",               0.5,  [80, 150, 230]),
+    (4,  "Endoderm",                      "Multipotent",    "Gut, liver, lungs, thyroid, pancreas",                 0.5,  [80, 150, 230]),
+    // ── Oligopotent SCs (from Ectoderm) ──────────────────────────────────────
+    (5,  "Neural SC (NSC)",               "Oligopotent",    "SVZ + SGZ niches; Sox2+/Nestin+",                      0.01, [60, 200, 160]),
+    (6,  "Epidermal SC (IFE basal)",      "Oligopotent",    "Rete ridges; α6β4+/p63+",                              0.07, [60, 200, 160]),
+    // ── Oligopotent SCs (from Mesoderm) ──────────────────────────────────────
+    (7,  "HSC (LT-HSC)",                  "Oligopotent",    "Endosteal niche; CD34+/CD38-/Lin-",                    0.019,[60, 200, 160]),
+    (8,  "MSC",                           "Oligopotent",    "Periosteum/BM stroma; CD105+/CD90+/CD73+",            0.008,[60, 200, 160]),
+    (9,  "Satellite cell (MuSC)",         "Unipotent",      "Sublaminal muscle niche; Pax7+/MyoD-",                 0.001,[80, 200, 90]),
+    // ── Oligopotent SCs (from Endoderm) ──────────────────────────────────────
+    (10, "Hepatic progenitor (HPC)",      "Bipotent",       "Canal of Hering; EpCAM+/Sox9+",                        0.002,[60, 200, 160]),
+    (11, "Intestinal SC (Lgr5+)",         "Oligopotent",    "Crypt base CBC; Wnt-driven; ~1 div/day",               1.0,  [60, 200, 160]),
+    (12, "Lung SC (AT2, Axin2+)",         "Oligopotent",    "Alveolar walls; SPC+/SFTPb+",                          0.003,[60, 200, 160]),
+    // ── Unipotent progenitors ────────────────────────────────────────────────
+    (13, "Neuroblast",                    "Unipotent",      "Migrating progenitor; Dcx+/PSA-NCAM+",                 0.5,  [80, 200, 90]),
+    (14, "Oligodendrocyte PC (OPC)",      "Unipotent",      "White matter; PDGFRA+/NG2+",                           0.1,  [80, 200, 90]),
+    (15, "Keratinocyte progenitor",       "Unipotent",      "Suprabasal; CK1/10 induction",                         0.07, [80, 200, 90]),
+    (16, "Melanoblast",                   "Unipotent",      "NC-derived; MITF+/DCT+",                               0.02, [80, 200, 90]),
+    (17, "CMP (Myeloid progenitor)",      "Unipotent",      "BM; CD34+/CD38+/IL-3Ra+/CD45RA-",                     0.3,  [80, 200, 90]),
+    (18, "CLP (Lymphoid progenitor)",     "Unipotent",      "BM; CD34+/CD38+/CD10+",                               0.2,  [80, 200, 90]),
+    (19, "Osteoprogenitor",               "Unipotent",      "RUNX2+/OSX+; pre-osteoblast",                          0.01, [80, 200, 90]),
+    (20, "Preadipocyte",                  "Unipotent",      "PPARγ low; C/EBPβ+",                                   0.005,[80, 200, 90]),
+    (21, "Chondroprogenitor",             "Unipotent",      "SOX9+/COL2A1 low",                                     0.003,[80, 200, 90]),
+    (22, "Myoblast",                      "Unipotent",      "MyoD+/Myf5+; fusion-competent",                        0.3,  [80, 200, 90]),
+    (23, "Hepatoblast",                   "Unipotent",      "HNF4A+/AFP+; bi-lineage precursor",                   0.05, [80, 200, 90]),
+    (24, "Transit-amplifying cell (TA)",  "Unipotent",      "Crypt progenitor; Lgr5-/Ascl2+",                       2.0,  [80, 200, 90]),
+    (25, "AT2→AT1 transitional",          "Unipotent",      "KRT8hi transitional state post-injury",                0.1,  [80, 200, 90]),
+    // ── Terminally differentiated ────────────────────────────────────────────
+    (26, "Glutamatergic neuron",          "Differentiated", "Excitatory; VGLUT1/2+; post-mitotic",                  0.0,  [140, 150, 170]),
+    (27, "GABAergic interneuron",         "Differentiated", "Inhibitory; GAD1/2+; post-mitotic",                    0.0,  [140, 150, 170]),
+    (28, "Oligodendrocyte",               "Differentiated", "Myelination; MBP+/PLP1+",                              0.0,  [140, 150, 170]),
+    (29, "Keratinocyte (cornified)",      "Differentiated", "Barrier; loricrin+/filaggrin+",                        0.0,  [140, 150, 170]),
+    (30, "Melanocyte",                    "Differentiated", "Melanin; TYR+/TYRP1+",                                 0.0,  [140, 150, 170]),
+    (31, "Monocyte / Macrophage",         "Differentiated", "Innate immunity; CD14+/CD68+",                          0.0,  [140, 150, 170]),
+    (32, "Neutrophil",                    "Differentiated", "Phagocytosis; CD66b+/MPO+",                             0.0,  [140, 150, 170]),
+    (33, "Erythrocyte (RBC)",             "Differentiated", "O₂ transport; HbA+; enucleated",                       0.0,  [140, 150, 170]),
+    (34, "T lymphocyte",                  "Differentiated", "Adaptive immunity; CD3+/TCR+",                          0.0,  [140, 150, 170]),
+    (35, "B cell / Plasma cell",          "Differentiated", "Antibody; CD19+/CD20+ → IgG+",                         0.0,  [140, 150, 170]),
+    (36, "Osteoblast",                    "Differentiated", "Bone matrix; RUNX2+/OCN+",                              0.003,[140, 150, 170]),
+    (37, "Adipocyte",                     "Differentiated", "Energy; PPARγ+/FABP4+",                                 0.0,  [140, 150, 170]),
+    (38, "Chondrocyte",                   "Differentiated", "Cartilage; COL2A1+/ACAN+",                              0.0,  [140, 150, 170]),
+    (39, "Myocyte / Muscle fiber",        "Differentiated", "Contraction; MyHC+/post-mitotic",                       0.0,  [140, 150, 170]),
+    (40, "Hepatocyte",                    "Differentiated", "Metabolism; ALB+/HNF4A+",                               0.001,[140, 150, 170]),
+    (41, "Enterocyte",                    "Differentiated", "Nutrient absorption; CDX2+/EpCAM+",                     0.0,  [140, 150, 170]),
+    (42, "AT1 pneumocyte",                "Differentiated", "Gas exchange; AQP5+/PDPN+",                             0.0,  [140, 150, 170]),
+    (43, "AT2 pneumocyte (mature)",       "Differentiated", "Surfactant; SPC+/SFTPb+",                               0.003,[140, 150, 170]),
+];
+
+fn lineage_children(id: usize) -> &'static [usize] {
+    match id {
+        0  => &[1],
+        1  => &[2, 3, 4],
+        2  => &[5, 6],
+        3  => &[7, 8, 9],
+        4  => &[10, 11, 12],
+        5  => &[13, 14],
+        6  => &[15, 16],
+        7  => &[17, 18],
+        8  => &[19, 20, 21],
+        9  => &[22],
+        10 => &[23],
+        11 => &[24],
+        12 => &[25],
+        13 => &[26, 27],
+        14 => &[28],
+        15 => &[29],
+        16 => &[30],
+        17 => &[31, 32, 33],
+        18 => &[34, 35],
+        19 => &[36],
+        20 => &[37],
+        21 => &[38],
+        22 => &[39],
+        23 => &[40],
+        24 => &[41],
+        25 => &[42, 43],
+        _  => &[],
+    }
+}
+
+/// Adult stem cells considered "safe" for regenerative medicine.
+/// Index: (node_id, niche_name, safety_note)
+const ADULT_SC_SAFE: &[(usize, &str)] = &[
+    (7,  "BM/Blood"),
+    (5,  "Neural"),
+    (8,  "Mesenchymal"),
+    (9,  "Muscle"),
+    (11, "Intestinal"),
+    (6,  "Epidermal"),
+    (10, "Hepatic"),
+    (12, "Lung AT2"),
+];
+
+/// Division Synchrony Index (DSI) for a safe adult SC:
+/// DSI = mean(child_div_rates) / (1 + CV(child_div_rates))
+/// where CV = std_dev / mean.  Range [0..1]: 1 = perfectly synchronous fast division.
+fn division_synchrony_index(parent_id: usize) -> f32 {
+    let children = lineage_children(parent_id);
+    if children.is_empty() { return 0.0; }
+
+    let rates: Vec<f32> = children.iter()
+        .map(|&cid| {
+            // also look one level deeper
+            let direct = LINEAGE.iter().find(|n| n.0 == cid).map(|n| n.4).unwrap_or(0.0);
+            let deeper = lineage_children(cid);
+            if deeper.is_empty() { return direct; }
+            let child_rates: Vec<f32> = deeper.iter()
+                .filter_map(|&gcid| LINEAGE.iter().find(|n| n.0 == gcid).map(|n| n.4))
+                .collect();
+            let mean_child: f32 = child_rates.iter().sum::<f32>() / child_rates.len().max(1) as f32;
+            (direct + mean_child) * 0.5
+        })
+        .collect();
+
+    let n = rates.len() as f32;
+    let mean = rates.iter().sum::<f32>() / n;
+    if mean < 1e-6 { return 0.0; }
+    let variance = rates.iter().map(|r| (r - mean).powi(2)).sum::<f32>() / n;
+    let cv = variance.sqrt() / mean;
+    let dsi = mean / (1.0 + cv);
+    dsi.clamp(0.0, 1.0)
+}
+
+fn render_lineage_node(
+    node_id: usize,
+    depth: usize,
+    is_last: bool,
+    expanded: &std::collections::HashSet<usize>,
+    ui: &mut egui::Ui,
+    to_toggle: &mut Option<usize>,
+) {
+    let Some(&(_, name, potency, desc, div_rate, [r, g, b])) =
+        LINEAGE.iter().find(|n| n.0 == node_id) else { return };
+
+    let children = lineage_children(node_id);
+    let has_children = !children.is_empty();
+    let is_expanded = expanded.contains(&node_id);
+    let node_col = Color32::from_rgb(r, g, b);
+
+    ui.horizontal(|ui| {
+        // indentation
+        if depth > 0 {
+            ui.add_space((depth as f32 - 1.0) * 18.0);
+            let conn = if is_last { "└─" } else { "├─" };
+            ui.label(egui::RichText::new(conn).size(10.0).monospace()
+                .color(Color32::from_rgb(55, 75, 95)));
+        }
+
+        // card
+        let fill = if is_expanded && has_children {
+            Color32::from_rgb(32, 48, 62)
+        } else {
+            Color32::from_rgb(20, 30, 42)
+        };
+
+        let card_resp = egui::Frame::none()
+            .fill(fill)
+            .stroke(Stroke::new(if is_expanded { 1.8 } else { 1.0 }, node_col))
+            .inner_margin(egui::Margin::same(5.0))
+            .rounding(egui::Rounding::same(4.0))
+            .show(ui, |ui| {
+                ui.set_min_width(140.0);
+                ui.horizontal(|ui| {
+                    let icon = if !has_children { "•" } else if is_expanded { "▼" } else { "▶" };
+                    ui.label(egui::RichText::new(icon).size(10.0).color(node_col));
+                    ui.label(egui::RichText::new(name).size(10.5).strong()
+                        .color(Color32::WHITE));
+                });
+                ui.label(egui::RichText::new(potency).size(8.5).color(node_col));
+                ui.label(egui::RichText::new(desc).size(8.0)
+                    .color(Color32::from_rgb(150, 162, 178)));
+                if div_rate > 0.0 {
+                    ui.label(egui::RichText::new(format!("⏱ {:.3}/day", div_rate))
+                        .size(8.0).color(Color32::from_rgb(90, 180, 90)));
+                }
+            })
+            .response;
+
+        if card_resp.interact(egui::Sense::click()).clicked() {
+            *to_toggle = Some(node_id);
+        }
+    });
+
+    if is_expanded && has_children {
+        for (i, &child_id) in children.iter().enumerate() {
+            render_lineage_node(
+                child_id, depth + 1,
+                i == children.len() - 1,
+                expanded, ui, to_toggle,
+            );
+        }
+    }
+}
+
+impl ConfigApp {
+    fn show_lineage_tree(&mut self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new("🧬 Cell Lineage — Potency Hierarchy")
+            .size(15.0).strong().color(Color32::from_rgb(100, 190, 160)));
+        ui.label(egui::RichText::new(
+            "Click ▶ to expand descendants • from totipotent blastocyst to terminally differentiated cells"
+        ).size(10.0).color(Color32::GRAY));
+        ui.add_space(4.0);
+        ui.separator();
+        ui.add_space(2.0);
+
+        let mut to_toggle: Option<usize> = None;
+        render_lineage_node(0, 0, true, &self.expanded_lineage, ui, &mut to_toggle);
+
+        if let Some(id) = to_toggle {
+            if self.expanded_lineage.contains(&id) {
+                self.expanded_lineage.remove(&id);
+            } else {
+                self.expanded_lineage.insert(id);
+            }
+        }
+    }
+
+    /// Fixed bottom row: safe adult stem cells with DSI metrics
+    fn show_adult_sc_row(&self, ui: &mut egui::Ui) {
+        let teal   = Color32::from_rgb(60, 200, 160);
+        let gold   = Color32::from_rgb(220, 180, 60);
+        let subtle = Color32::from_rgb(80, 95, 110);
+        let live_col = Color32::from_rgb(50, 220, 120);
+        let dead_col = Color32::from_rgb(120, 60, 60);
+
+        // Live division_rate from last simulation snapshot (global average across all niches)
+        let live_divrate: Option<f32> = self.sim_snapshots.last().map(|s| s.division_rate);
+
+        // Header
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("🔒 Safe Adult SCs:")
+                .size(10.5).strong().color(teal));
+            if let Some(live) = live_divrate {
+                let col = if live > 0.6 { live_col } else if live > 0.3 { gold } else { dead_col };
+                ui.label(egui::RichText::new(format!("● sim div_rate: {:.3}", live))
+                    .size(9.0).color(col));
+            }
+        });
+        ui.add_space(4.0);
+
+        // Vertical list with scroll
+        // tissue_order index matches ADULT_SC_SAFE order:
+        // 0=Blood, 1=Neural, 2=Connective, 3=Muscle, 4=Epithelial, 5=Skin, 6=Liver, 7=Lung
+        let last_snap = self.sim_snapshots.last();
+        egui::ScrollArea::vertical()
+            .id_source("adult_sc_scroll")
+            .show(ui, |ui| {
+                for (tissue_idx, &(node_id, niche)) in ADULT_SC_SAFE.iter().enumerate() {
+                    let Some(&(_, name, _, _, div_rate_ref, [r, g, b])) =
+                        LINEAGE.iter().find(|n| n.0 == node_id) else { continue };
+
+                    let dsi = division_synchrony_index(node_id);
+                    let sc_col = Color32::from_rgb(r, g, b);
+
+                    let dsi_col = if dsi > 0.05 {
+                        Color32::from_rgb(80, 200, 90)
+                    } else if dsi > 0.01 {
+                        gold
+                    } else {
+                        Color32::from_rgb(180, 90, 70)
+                    };
+
+                    // Per-tissue live rate from last snapshot
+                    let live_tissue: Option<f32> = last_snap.and_then(|s| {
+                        let v = s.per_tissue_div_rate[tissue_idx];
+                        if v.is_nan() { None } else { Some(v) }
+                    });
+
+                    egui::Frame::none()
+                        .fill(Color32::from_rgb(22, 34, 46))
+                        .stroke(Stroke::new(1.2, sc_col))
+                        .inner_margin(egui::Margin::same(6.0))
+                        .rounding(egui::Rounding::same(4.0))
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(niche).size(10.5).strong()
+                                    .color(Color32::WHITE));
+                                ui.label(egui::RichText::new(
+                                    &name[..name.len().min(30)]
+                                ).size(9.0).color(subtle));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(
+                                    format!("ref {:.3}", div_rate_ref)).size(8.5)
+                                    .color(subtle));
+                                ui.label(egui::RichText::new("|").size(8.5).color(subtle));
+                                ui.label(egui::RichText::new(
+                                    format!("DSI {:.3}", dsi)).size(8.5)
+                                    .color(dsi_col));
+                                if let Some(live) = live_tissue {
+                                    let lc = if live > 0.6 { live_col }
+                                             else if live > 0.3 { gold }
+                                             else { dead_col };
+                                    ui.label(egui::RichText::new("|").size(8.5).color(subtle));
+                                    ui.label(egui::RichText::new(format!("● {:.3}", live))
+                                        .size(8.5).color(lc));
+                                }
+                            });
+                        });
+                    ui.add_space(3.0);
+                }
+            });
+    }
+
+    fn show_niche_catalog(&mut self, ui: &mut egui::Ui) {
+        use egui::RichText;
+
+        let live_divrate: Option<f32> = self.sim_snapshots.last().map(|s| s.division_rate);
+
+        ui.heading(RichText::new("🧬 Stem Cell Niches — Pre-simulation")
+            .size(17.0).strong().color(Color32::from_rgb(100, 190, 160)));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(
+                "20 human niches by potency level • click a card to inspect"
+            ).size(10.5).color(Color32::GRAY));
+            if let Some(live) = live_divrate {
+                let lc = if live > 0.6 { Color32::from_rgb(50, 220, 120) }
+                         else if live > 0.3 { Color32::from_rgb(220, 180, 60) }
+                         else { Color32::from_rgb(180, 80, 60) };
+                ui.label(RichText::new(format!("● sim div_rate: {:.3}", live))
+                    .size(10.0).color(lc));
+            }
+        });
+        ui.add_space(4.0);
+        ui.separator();
+
+        let niches = NicheCatalog::all();
+
+        // ── Niche groups by potency level ─────────────────────────────────
+        struct Group { name: &'static str, ids: &'static [&'static str], r: u8, g: u8, b: u8 }
+        let groups = [
+            Group { name: "Pluripotent / Long-term",    ids: &["BM_Endo","BM_Peri","SkMus","IntCrypt","SVZ","SGZ"],    r:80, g:160, b:220 },
+            Group { name: "Oligopotent / Tissue-specific", ids: &["SkinIFE","HairBulge","Limbal","Mammary","Testis","Adipose"], r:100,g:200,b:130 },
+            Group { name: "Unipotent / Ultra-slow",     ids: &["LiverHPC","LungAT2","LungBADJ","Pancreas","Heart","Prostate","DentalPulp","Periosteum"], r:220,g:150,b:60 },
+        ];
+
+        let mut new_sel = self.selected_niche;
+
+        for g in &groups {
+            let g_col = Color32::from_rgb(g.r, g.g, g.b);
+            ui.add_space(6.0);
+            ui.label(RichText::new(g.name).size(12.5).strong().color(g_col));
+            ui.add_space(2.0);
+
+            ui.horizontal_wrapped(|ui| {
+                for &id in g.ids {
+                    let found = niches.iter().enumerate().find(|(_, n)| n.id == id);
+                    if let Some((idx, n)) = found {
+                        let is_sel = new_sel == Some(idx);
+                        let [tr, tg, tb] = n.tier.color();
+                        let tier_col = Color32::from_rgb(tr, tg, tb);
+
+                        let fill = if is_sel { Color32::from_rgb(40,62,78) } else { Color32::from_rgb(26,36,46) };
+                        let stroke = if is_sel {
+                            Stroke::new(2.0, g_col)
+                        } else {
+                            Stroke::new(1.0, Color32::from_rgb(55,75,95))
+                        };
+
+                        let card_resp = egui::Frame::none()
+                            .fill(fill)
+                            .stroke(stroke)
+                            .inner_margin(egui::Margin::same(6.0))
+                            .rounding(egui::Rounding::same(4.0))
+                            .show(ui, |ui| {
+                                ui.set_min_width(158.0);
+                                ui.set_max_width(158.0);
+                                ui.label(RichText::new(n.id).size(9.0).monospace()
+                                    .color(tier_col));
+                                ui.label(RichText::new(n.name).size(9.5).strong()
+                                    .color(Color32::WHITE));
+                                ui.label(RichText::new(n.sc_type).size(8.5)
+                                    .color(Color32::LIGHT_GRAY));
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(
+                                        format!("📍{}µm  ⏱{}", n.depth_um as u32,
+                                            if n.div_rate_young >= 0.1 { "fast" }
+                                            else if n.div_rate_young >= 0.005 { "slow" }
+                                            else { "ultra-slow" })
+                                    ).size(8.0).color(Color32::from_rgb(130,160,130)));
+                                });
+                                // Ref rates (literature)
+                                ui.label(RichText::new(
+                                    format!("ref {:.4}→{:.4}/day", n.div_rate_young, n.div_rate_aged)
+                                ).size(7.5).color(Color32::from_rgb(80,95,110)));
+                                // Live sim rate (global average)
+                                if let Some(live) = live_divrate {
+                                    let lc = if live > 0.6 { Color32::from_rgb(50,220,120) }
+                                             else if live > 0.3 { Color32::from_rgb(220,180,60) }
+                                             else { Color32::from_rgb(180,80,60) };
+                                    ui.label(RichText::new(format!("● sim {:.3}", live))
+                                        .size(7.5).color(lc));
+                                }
+                            })
+                            .response;
+
+                        if card_resp.interact(egui::Sense::click()).clicked() {
+                            new_sel = if is_sel { None } else { Some(idx) };
+                        }
+                    }
+                }
+            });
+        }
+
+        // ── Detail panel ──────────────────────────────────────────────────
+        if let Some(idx) = new_sel {
+            if let Some(n) = niches.get(idx) {
+                ui.add_space(8.0);
+                ui.separator();
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(20, 35, 52))
+                    .stroke(Stroke::new(1.5, Color32::from_rgb(70, 130, 195)))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .rounding(egui::Rounding::same(5.0))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(format!("🔬  {}", n.name))
+                            .size(14.0).strong().color(Color32::WHITE));
+                        ui.add_space(3.0);
+                        egui::Grid::new("nd")
+                            .num_columns(2)
+                            .spacing([10.0, 3.0])
+                            .show(ui, |ui| {
+                                let k = |s: &str| RichText::new(s).size(10.0)
+                                    .color(Color32::from_rgb(130,160,200));
+                                let v = |s: &str| RichText::new(s).size(10.0)
+                                    .color(Color32::LIGHT_GRAY);
+                                ui.label(k("Organ:"));     ui.label(v(n.organ));       ui.end_row();
+                                ui.label(k("SC type:"));   ui.label(v(n.sc_type));     ui.end_row();
+                                ui.label(k("Location:"));  ui.label(v(n.location));    ui.end_row();
+                                ui.label(k("Depth:"));     ui.label(v(&format!("{} µm", n.depth_um))); ui.end_row();
+                                ui.label(k("Div.rate:")); ui.label(v(&format!(
+                                    "{:.4}/day young → {:.4}/day aged  (↓{:.0}%)",
+                                    n.div_rate_young, n.div_rate_aged,
+                                    (1.0 - n.div_rate_aged/n.div_rate_young.max(1e-9)) * 100.0
+                                ))); ui.end_row();
+                                ui.label(k("Signals:"));   ui.label(v(n.key_signals)); ui.end_row();
+                                ui.label(k("Aging:"));     ui.label(v(n.aging_note));  ui.end_row();
+                            });
+                    });
+            }
+        }
+
+        self.selected_niche = new_sel;
     }
 }
 
@@ -1299,6 +1963,13 @@ impl ConfigApp {
         let dead50 = lifespan < 45.0;
         let dead70 = lifespan < 65.0;
 
+        // Estimated new metrics (derived from damage_scale)
+        let prot70_e = (0.005 * s * 70.0).min(1.0);
+        let divr70_e = (1.0 - 0.008 * ps * 70.0).max(0.0);
+        let cds70_e  = (0.009 * s * 70.0).min(1.0);
+        let bio70_e  = (70.0 * s * 0.4 + (0.55 * ps * 70.0).min(1.0) * 120.0 * 0.3
+                        + frailty_fn(70.0) * 100.0 * 0.3).clamp(0.0, 150.0) as f32;
+
         vec![
             ("Lifespan",    format!("~{:.0} yr", lifespan),                  lifespan < 40.0),
             ("Healthspan",  format!("~{:.0} yr", healthspan),                healthspan < 20.0),
@@ -1306,6 +1977,10 @@ impl ConfigApp {
             ("Frailty @70", if dead70 { "✝ died".into() } else { format!("{:.2}", f70) }, dead70 || f70 > 0.8),
             ("Pool @70",    if dead70 { "✝ died".into() } else { format!("{:.0}%", p70 * 100.0) }, dead70 || p70 < 0.3),
             ("ROS @50",     if dead50 { "✝ died".into() } else { format!("{:.2}", r50) }, dead50 || r50 > 0.6),
+            ("Prot.Agg@70", if dead70 { "✝ died".into() } else { format!("{:.2}", prot70_e) }, dead70 || prot70_e > 0.5),
+            ("Div.Rate@70", if dead70 { "✝ died".into() } else { format!("{:.2}", divr70_e) }, dead70 || divr70_e < 0.3),
+            ("CDS @70",     if dead70 { "✝ died".into() } else { format!("{:.2}", cds70_e) },  dead70 || cds70_e > 0.6),
+            ("BioAge @70",  if dead70 { "✝ died".into() } else { format!("~{:.0} yr", bio70_e) }, dead70 || bio70_e > 90.0),
         ]
     }
 
@@ -1337,6 +2012,11 @@ impl ConfigApp {
         let p70 = snap_at(70.0).map(|s| s.stem_cell_pool).unwrap_or(0.0);
         let r50 = snap_at(50.0).map(|s| s.ros_level).unwrap_or(0.0);
 
+        let prot70 = snap_at(70.0).map(|s| s.protein_aggregation).unwrap_or(0.0);
+        let divr70 = snap_at(70.0).map(|s| s.division_rate).unwrap_or(1.0);
+        let cds70  = snap_at(70.0).map(|s| s.centrosomal_damage).unwrap_or(0.0);
+        let bio70  = snap_at(70.0).map(|s| s.biological_age).unwrap_or(70.0);
+
         Some(vec![
             ("Lifespan",    format!("{:.1} yr", lifespan),                     lifespan < 40.0),
             ("Healthspan",  format!("{:.1} yr", healthspan),                   healthspan < 20.0),
@@ -1344,6 +2024,10 @@ impl ConfigApp {
             ("Frailty @70", if dead_before(70.0) { "✝ died".into() } else { format!("{:.3}", f70) }, dead_before(70.0) || f70 > 0.8),
             ("Pool @70",    if dead_before(70.0) { "✝ died".into() } else { format!("{:.0}%",  p70 * 100.0) }, dead_before(70.0) || p70 < 0.3),
             ("ROS @50",     if dead_before(50.0) { "✝ died".into() } else { format!("{:.3}", r50) }, dead_before(50.0) || r50 > 0.6),
+            ("Prot.Agg@70", if dead_before(70.0) { "✝ died".into() } else { format!("{:.3}", prot70) }, dead_before(70.0) || prot70 > 0.5),
+            ("Div.Rate@70", if dead_before(70.0) { "✝ died".into() } else { format!("{:.3}", divr70) }, dead_before(70.0) || divr70 < 0.3),
+            ("CDS @70",     if dead_before(70.0) { "✝ died".into() } else { format!("{:.3}", cds70) },  dead_before(70.0) || cds70 > 0.6),
+            ("BioAge @70",  if dead_before(70.0) { "✝ died".into() } else { format!("{:.1} yr", bio70) }, dead_before(70.0) || bio70 > 90.0),
         ])
     }
 
@@ -1435,60 +2119,104 @@ impl ConfigApp {
         ])
     }
 
-    /// Render the metrics bar: estimated (gray) or real (green) depending on state.
+    /// Render the metrics bar in TWO rows.
+    /// Row 1 (green): core longevity metrics — Lifespan, Healthspan, Frailty@50/70, Pool@70, ROS@50
+    /// Row 2 (blue/amber): new metrics + system risks — Prot.Agg, Div.Rate, CDS, BioAge │ Cardio, Cancer, Cognit.
     fn show_metrics_bar(&self, ui: &mut egui::Ui) {
-        // ── Row 1: core aging metrics ────────────────────────────────────────
         let (metrics, is_real) = if let Some(real) = self.real_metrics() {
             (real, true)
         } else {
             (self.estimated_metrics(), false)
         };
-
-        let tag_color  = if is_real { Color32::from_rgb(50, 200, 130) } else { Color32::from_rgb(120, 130, 145) };
-        let val_color  = if is_real { Color32::from_rgb(50, 200, 130) } else { Color32::from_rgb(200, 210, 225) };
-        let warn_color = Color32::from_rgb(220, 120, 60);
-        let lbl_color  = Color32::from_rgb(100, 110, 125);
-        let tag        = if is_real { "● real" } else { "● est." };
-
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(tag).size(10.0).color(tag_color));
-            ui.add_space(6.0);
-            for (label, value, warn) in &metrics {
-                ui.vertical(|ui| {
-                    ui.set_min_width(72.0);
-                    ui.label(egui::RichText::new(*label).size(10.0).color(lbl_color));
-                    let color = if *warn { warn_color } else { val_color };
-                    ui.label(egui::RichText::new(value.as_str()).size(13.0).strong().color(color));
-                });
-            }
-        });
-
-        // ── Row 2: system risks (distinct amber palette) ──────────────────────
         let (risks, risks_real) = if let Some(r) = self.real_system_risks() {
             (r, true)
         } else {
             (self.estimated_system_risks(), false)
         };
 
-        let risk_tag_color = if risks_real {
-            Color32::from_rgb(220, 160, 40)   // amber-gold = real
-        } else {
-            Color32::from_rgb(140, 120, 80)   // muted amber = estimated
-        };
-        let risk_val_color  = Color32::from_rgb(240, 190, 80);  // warm amber
-        let risk_warn_color = Color32::from_rgb(210, 65,  65);  // crimson
-        let risk_lbl_color  = Color32::from_rgb(130, 115, 80);
-        let risk_tag = if risks_real { "⚕ risks·real" } else { "⚕ risks·est." };
+        let tag_color  = if is_real { Color32::from_rgb(50, 200, 130) } else { Color32::from_rgb(120, 130, 145) };
+        let val_color  = if is_real { Color32::from_rgb(50, 200, 130) } else { Color32::from_rgb(200, 210, 225) };
+        let warn_color = Color32::from_rgb(220, 120, 60);
+        let lbl_color  = Color32::from_rgb(100, 110, 125);
+        let new_val    = Color32::from_rgb(100, 180, 255);   // blue for new metrics
+        let risk_val   = Color32::from_rgb(240, 190, 80);
+        let risk_warn  = Color32::from_rgb(210, 65, 65);
+        let risk_lbl   = Color32::from_rgb(130, 115, 80);
+        let div_col    = Color32::from_rgb(70, 75, 85);
+        let tag        = if is_real { "● real" } else { "● est." };
 
+        // ── Row 1: core 6 aging metrics ──────────────────────────────────────
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(risk_tag).size(10.0).color(risk_tag_color));
-            ui.add_space(6.0);
+            ui.label(egui::RichText::new(tag).size(10.0).color(tag_color));
+            ui.add_space(3.0);
+            for (label, value, warn) in metrics.iter().take(6) {
+                ui.vertical(|ui| {
+                    ui.set_min_width(68.0);
+                    ui.label(egui::RichText::new(*label).size(9.5).color(lbl_color));
+                    let color = if *warn { warn_color } else { val_color };
+                    ui.label(egui::RichText::new(value.as_str()).size(12.5).strong().color(color));
+                });
+            }
+        });
+
+        // ── Row 2: new 4 metrics + 3 system risks ────────────────────────────
+        ui.horizontal(|ui| {
+            let risk_tag_col = if risks_real { Color32::from_rgb(220, 160, 40) } else { Color32::from_rgb(140, 120, 80) };
+            ui.label(egui::RichText::new("◈ ext.").size(10.0).color(new_val));
+            ui.add_space(3.0);
+            for (label, value, warn) in metrics.iter().skip(6) {
+                ui.vertical(|ui| {
+                    ui.set_min_width(68.0);
+                    ui.label(egui::RichText::new(*label).size(9.5).color(lbl_color));
+                    let color = if *warn { warn_color } else { new_val };
+                    ui.label(egui::RichText::new(value.as_str()).size(12.5).strong().color(color));
+                });
+            }
+            ui.label(egui::RichText::new("│").size(18.0).color(div_col));
+            ui.label(egui::RichText::new(if risks_real { "⚕ real" } else { "⚕ est." }).size(10.0).color(risk_tag_col));
+            ui.add_space(2.0);
             for (label, value, warn) in &risks {
                 ui.vertical(|ui| {
-                    ui.set_min_width(90.0);
-                    ui.label(egui::RichText::new(*label).size(10.0).color(risk_lbl_color));
-                    let color = if *warn { risk_warn_color } else { risk_val_color };
-                    ui.label(egui::RichText::new(value.as_str()).size(13.0).strong().color(color));
+                    ui.set_min_width(68.0);
+                    ui.label(egui::RichText::new(*label).size(9.5).color(risk_lbl));
+                    let color = if *warn { risk_warn } else { risk_val };
+                    ui.label(egui::RichText::new(value.as_str()).size(12.5).strong().color(color));
+                });
+            }
+        });
+
+        // ── Row 3: Niche division rates (6 representative niches) ────────────
+        let niche_col = Color32::from_rgb(100, 200, 180);
+        let niche_warn = Color32::from_rgb(220, 130, 60);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("🏘 niches").size(10.0).color(niche_col));
+            ui.add_space(2.0);
+            // Representative niches: HSC, Intestinal, SVZ, Satellite, Hair, Cardiac
+            let representative = [
+                ("HSC",    0.019_f32, 0.015_f32),
+                ("IntSC",  1.000_f32, 0.700_f32),
+                ("Neural", 0.010_f32, 0.005_f32),
+                ("Muscle", 0.001_f32, 0.000_5),
+                ("HairSC", 0.050_f32, 0.030_f32),
+                ("CardSC", 0.000_1,   0.000_05),
+            ];
+            // Estimate age-adjusted rate from sim snapshots or use default
+            let age_frac = if self.sim_snapshots.is_empty() {
+                0.0_f32
+            } else {
+                (self.sim_snapshots.last().unwrap().age_years / 100.0) as f32
+            };
+            let damage_s = self.damage_scale() as f32;
+            for (label, rate_young, rate_aged) in &representative {
+                let current = rate_young * (1.0 - age_frac) + rate_aged * age_frac;
+                // damage modulates division further
+                let current = (current / damage_s.sqrt()).clamp(0.0, *rate_young);
+                let warn = current < rate_aged * 0.5;
+                ui.vertical(|ui| {
+                    ui.set_min_width(60.0);
+                    ui.label(egui::RichText::new(*label).size(9.5).color(lbl_color));
+                    let col = if warn { niche_warn } else { niche_col };
+                    ui.label(egui::RichText::new(format!("{:.4}", current)).size(12.0).strong().color(col));
                 });
             }
         });
@@ -1718,6 +2446,821 @@ impl ConfigApp {
 // ==================== TAB IMPLEMENTATIONS ====================
 
 impl ConfigApp {
+    fn show_ze_field_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🌀 Ze Field (−5) — Ze morphogenetic field");
+        ui.separator();
+        ui.collapsing("ZeHealthState (✅ implemented)", |ui| {
+            ui.label("Ze field intensity → cellular entropy → aging rate");
+            ui.label("Parameters: ze_field_strength, entropy_coupling_coefficient");
+            ui.label("→ Affects: Frailty, Biological Age, Division Rate");
+        });
+        ui.collapsing("planned: quantum_coherence_module", |ui| {
+            ui.label("Quantum decoherence rate at centriolar level");
+            ui.label("Dataset: Penrose-Hameroff orchestrated reduction theory");
+        });
+    }
+
+    fn show_atoms_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("⚛️ Atoms (−4) — Thermodynamic basis");
+        ui.separator();
+        ui.collapsing("ThermodynamicState (✅ implemented)", |ui| {
+            ui.label("Entropy production, free energy, Boltzmann fluctuations");
+            ui.label("→ Affects: ROS Level, Protein Aggregation");
+        });
+        ui.collapsing("planned: radical_chemistry_module", |ui| {
+            ui.label("Atomic-level ROS generation from mitochondrial ETC");
+            ui.label("Dataset: superoxide production rate constants");
+        });
+    }
+
+    fn show_molecules_tab(&mut self, ui: &mut egui::Ui) {
+        // Reuse existing molecular content + add new components
+        self.show_molecular_tab(ui);
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label(egui::RichText::new("Additional molecular components:").strong());
+        ui.collapsing("ROSCascadeState (✅ implemented)", |ui| {
+            ui.label("Superoxide → H₂O₂ → OH• cascade; GPx/SOD activity");
+            ui.label("→ Affects: ROS Level, Myeloid Bias, Protein Aggregation");
+        });
+        ui.collapsing("ATPEnergyState (✅ implemented)", |ui| {
+            ui.label("ATP/ADP ratio, mitochondrial membrane potential, glycolysis");
+            ui.label("→ Affects: Division Rate, Stem Cell Pool");
+        });
+        ui.collapsing("ChromatinState (✅ implemented)", |ui| {
+            ui.label("Heterochromatin vs euchromatin ratio, H3K27me3, H3K4me3");
+            ui.label("→ Affects: Methylation Age, Biological Age");
+        });
+        ui.collapsing("AppendageProteinState (✅ implemented)", |ui| {
+            ui.label("CEP164, TTBK2, Rootletin — centriolar appendage proteins");
+            ui.label("→ Affects: CDS, Frailty");
+        });
+    }
+
+    fn show_cytoskeleton_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new("🏛️ Structures — Level -2")
+            .size(16.0).strong().color(Color32::from_rgb(160, 200, 240)));
+        ui.label(egui::RichText::new(
+            "Cellular structural framework: cytoskeleton, nucleus, membrane, ECM anchoring"
+        ).size(11.0).color(Color32::GRAY));
+        ui.add_space(6.0);
+        ui.separator();
+
+        // ── Cytoskeleton ──────────────────────────────────────────────────
+        ui.collapsing("🕸️ Microtubule network (MicrotubuleState)", |ui| {
+            ui.label("α/β-tubulin PTM (acetylation, tyrosination), dynamic instability, GTP cap.");
+            ui.label("Centriole nucleates γ-TuRC → MTOC stability tracks spindle_fidelity.");
+            egui::Grid::new("mt_grid").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+                ui.label("tubulin_acetylation");  ui.label("↑ stabilises MT → ↓division rate variability"); ui.end_row();
+                ui.label("dynamic_instability");  ui.label("↑ → centrosomal damage ↑, CDS ↑");              ui.end_row();
+                ui.label("polymerization_rate");  ui.label("→ Division Rate (Track F)");                     ui.end_row();
+            });
+        });
+        ui.collapsing("🌊 Actin cortex (ActinRingState)", |ui| {
+            ui.label("Cortical actin ring tension during cytokinesis → asymmetric division fidelity.");
+            ui.label("Polarised actin cap marks stem cell fate axis (mother-daughter axis).");
+            egui::Grid::new("actin_grid").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+                ui.label("cortical_tension");    ui.label("→ Division symmetry (Track B)");  ui.end_row();
+                ui.label("actin_cap_polarity");  ui.label("→ Stem Cell Pool retention");     ui.end_row();
+                ui.label("formin_activity");     ui.label("Wnt-regulated actin nucleation");  ui.end_row();
+            });
+        });
+        ui.collapsing("🚌 Intraflagellar transport (IFTState)", |ui| {
+            ui.label("IFT-A (retrograde) / IFT-B (anterograde) complexes, kinesin-2, dynein.");
+            ui.label("Required for primary cilia assembly → Shh / Wnt signal reception.");
+            egui::Grid::new("ift_grid").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+                ui.label("ift_velocity");         ui.label("→ Ciliary function (Track A)");        ui.end_row();
+                ui.label("retrograde_flux");      ui.label("→ CEP164 localisation fidelity");      ui.end_row();
+            });
+        });
+
+        ui.add_space(4.0);
+        ui.separator();
+
+        // ── Nucleus ───────────────────────────────────────────────────────
+        ui.collapsing("🔵 Nuclear envelope (NuclearEnvelopeState)", |ui| {
+            ui.label("Lamin A/C network integrity, nuclear pore complex density.");
+            ui.label("Progerin accumulation (aging HGPS-like) → nuclear blebbing → DNA damage.");
+            egui::Grid::new("ne_grid").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+                ui.label("lamin_integrity");     ui.label("↓ → DDR activation, γ-H2AX ↑");           ui.end_row();
+                ui.label("npc_density");         ui.label("→ RNA export efficiency → proteostasis");   ui.end_row();
+                ui.label("progerin_fraction");   ui.label("→ Methylation Age (Track D)");              ui.end_row();
+            });
+        });
+        ui.collapsing("💧 Plasma membrane (MembraneState)", |ui| {
+            ui.label("Lipid raft composition, cholesterol:phospholipid ratio, fluidity index.");
+            ui.label("Sphingolipid signalling platforms → Wnt/Notch receptor clustering.");
+            egui::Grid::new("mem_grid").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+                ui.label("fluidity_index");       ui.label("→ receptor clustering (Wnt / Notch)");  ui.end_row();
+                ui.label("cholesterol_ratio");    ui.label("↑ with age → membrane stiffening");     ui.end_row();
+                ui.label("oxidised_lipids");      ui.label("→ ROS amplification loop (Track E)");   ui.end_row();
+            });
+        });
+        ui.collapsing("🔗 ECM anchoring / Integrins (IntegrinState)", |ui| {
+            ui.label("α6β4 / α6β1 integrins anchor basal SCs to basement membrane.");
+            ui.label("Focal adhesion kinase (FAK) relays ECM stiffness → stem cell retention.");
+            egui::Grid::new("ecm_grid").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+                ui.label("integrin_expression");  ui.label("→ Niche retention / Pool size");        ui.end_row();
+                ui.label("ecm_stiffness");        ui.label("↑ with age (cross-linking) → quiescence exit delayed"); ui.end_row();
+                ui.label("fak_activity");         ui.label("→ Division Rate (Track F)");            ui.end_row();
+            });
+        });
+        ui.collapsing("⚡ Intermediate filaments (IFState)", |ui| {
+            ui.label("Vimentin, keratin, desmin — mechanical buffering of the nucleus.");
+            ui.label("Nuclear lamins (type V IF) connect cytoskeleton to chromatin.");
+            ui.label("→ Affects: Nuclear envelope integrity, CDS, Frailty");
+        });
+    }
+
+    fn show_organelles_tab(&mut self, ui: &mut egui::Ui) {
+        // Reuse mitochondrial content + add other organelles
+        self.show_mitochondrial_tab(ui);
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label(egui::RichText::new("Other organelles:").strong());
+        ui.collapsing("GolgiState (✅ implemented)", |ui| {
+            ui.label("Golgi fragmentation index, vesicle trafficking, glycosylation fidelity");
+            ui.label("→ Affects: Protein Aggregation, Division Rate");
+        });
+        ui.collapsing("ERStressState (✅ implemented)", |ui| {
+            ui.label("UPR activation (ATF6/IRE1/PERK), ER Ca²⁺ homeostasis");
+            ui.label("→ Affects: Protein Aggregation, Frailty");
+        });
+        ui.collapsing("LysosomeState (✅ implemented)", |ui| {
+            ui.label("pH, cathepsin activity, lipofuscin accumulation, mTORC1");
+            ui.label("→ Affects: Protein Aggregation, Division Rate");
+        });
+        ui.collapsing("PeroxisomeState (✅ implemented)", |ui| {
+            ui.label("Catalase activity, fatty acid β-oxidation, H₂O₂ scavenging");
+            ui.label("→ Affects: ROS Level");
+        });
+        ui.collapsing("RibosomeState (✅ implemented)", |ui| {
+            ui.label("Translation fidelity, ribosome biogenesis, rDNA silencing");
+            ui.label("→ Affects: Protein Aggregation, Division Rate");
+        });
+    }
+
+    fn show_cell_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("⭐ Cell (0) — Core CDATA: Niche · Cycle · Division · Hierarchy");
+        ui.separator();
+        // Show all four core cell-level parameter sections
+        self.show_niche_tab(ui);
+        ui.add_space(6.0);
+        ui.collapsing("♻️ Cell Cycle parameters →", |ui| { self.show_cell_cycle_tab(ui); });
+        ui.add_space(4.0);
+        ui.collapsing("⚖️ Division parameters →", |ui| { self.show_division_tab(ui); });
+        ui.add_space(4.0);
+        ui.collapsing("🌱 Stem Hierarchy parameters →", |ui| { self.show_stem_hierarchy_tab(ui); });
+    }
+
+    fn show_tissues_tab(&mut self, ui: &mut egui::Ui) {
+        // Reuse tissue/myeloid content + add ECM/vascular
+        self.show_tissue_tab(ui);
+        ui.add_space(8.0);
+        ui.separator();
+        ui.collapsing("🏘️ Stem Cell Niche Catalog", |ui| {
+            self.show_niche_catalog(ui);
+        });
+        ui.add_space(4.0);
+        ui.separator();
+        ui.collapsing("ExtracellularMatrixState (✅ implemented)", |ui| {
+            ui.label("Collagen cross-linking, fibronectin, laminin → niche stiffness");
+            ui.label("→ Affects: Division Rate, Stem Cell Pool");
+        });
+        ui.collapsing("VascularNicheState (✅ implemented)", |ui| {
+            ui.label("O₂ partial pressure, nutrient delivery, VEGF signaling");
+            ui.label("→ Affects: ROS Level, Division Rate, Frailty");
+        });
+        ui.collapsing("FibrosisState (✅ implemented)", |ui| {
+            ui.label("TGF-β, myofibroblast activation, scar tissue fraction");
+            ui.label("→ Affects: Stem Cell Pool, Frailty");
+        });
+    }
+
+    fn show_organs_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🫀 Organs (+2) — 11 organ systems");
+        ui.separator();
+        ui.label("OrganState tracks functional capacity and failure probability for 11 organs.");
+        ui.add_space(4.0);
+        let organs = [
+            ("🩸 Hematopoietic", "HSC pool in bone marrow", "Stem Cell Pool"),
+            ("🧠 Neural",         "NSC in SVZ/SGZ",          "Cognitive Index"),
+            ("❤️ Cardiac",        "CPC in myocardium",       "Frailty, O₂ delivery"),
+            ("🫁 Pulmonary",      "AEC2 in alveoli",         "O₂ fraction (breathing module)"),
+            ("🫘 Hepatic",        "Hepatocyte in portal zone","Frailty, metabolic"),
+            ("🧪 Pancreatic",     "Acinar + β-cells",        "Metabolic phenotype"),
+            ("💪 Skeletal muscle","Satellite cells (SC)",     "Division Rate"),
+            ("🦴 Bone",           "MSC in endosteum",        "Stem Cell Pool"),
+            ("🦷 Skin/epithelium","IFSCs in hair bulge",     "Frailty"),
+            ("🧬 Gonads",         "SSC in seminiferous",     "Lifespan (germline)"),
+            ("🫀 Vascular",       "EPC in vessel wall",      "Myeloid Bias, Cardio risk"),
+        ];
+        for (name, niche, metric) in &organs {
+            ui.collapsing(*name, |ui| {
+                ui.label(format!("Niche: {}", niche));
+                ui.label(format!("→ Affects: {}", metric));
+                ui.label("Status: ✅ implemented via OrganState");
+            });
+        }
+        ui.add_space(4.0);
+        ui.collapsing("Poly-organ failure cascade", |ui| {
+            ui.label("Organ failure triggers cascade: renal → hepatic → cardiac");
+            ui.label("OrganismState.frailty_index aggregates organ functional scores");
+            ui.label("→ Affects: Lifespan (death criterion)");
+        });
+    }
+
+    fn show_society_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("👥 Society (+4) — Social determinants of aging");
+        ui.separator();
+        ui.colored_label(egui::Color32::from_rgb(200, 140, 60), "❌ Not yet implemented — planned modules:");
+        ui.add_space(4.0);
+        ui.collapsing("social_support_module (planned)", |ui| {
+            ui.label("Social support index [0..1] → cortisol↓ → ROS↓, inflammaging↓");
+            ui.label("→ Affects: ROS Level, Myeloid Bias, Frailty, Lifespan");
+            ui.label("Dataset: Holt-Lunstad et al. (2015, PLOS Medicine, N=308,849)");
+            ui.label("  Social isolation HR = 1.29 for all-cause mortality");
+        });
+        ui.collapsing("loneliness_module (planned)", |ui| {
+            ui.label("Loneliness index [0..1] → CRP↑ → SASP↑ → myeloid_bias↑");
+            ui.label("→ Affects: Myeloid Bias, Protein Aggregation, Biological Age");
+            ui.label("Dataset: Cacioppo & Hawkley (2010, Neuroscience & Biobehavioral Reviews)");
+        });
+        ui.collapsing("socioeconomic_module (planned)", |ui| {
+            ui.label("SES index → healthcare access → intervention availability");
+            ui.label("→ Affects: all metrics via intervention probability");
+            ui.label("Dataset: Marmot Review (2010) — SES gradient in all-cause mortality");
+        });
+        ui.collapsing("stress_module (planned)", |ui| {
+            ui.label("Allostatic load → HPA axis → cortisol chronic → telomere shortening");
+            ui.label("→ Affects: Telomere Length, Methylation Age, Division Rate");
+            ui.label("Dataset: Epel et al. (2004, PNAS) — psychological stress → telomere shortening");
+        });
+    }
+
+    fn show_ecosphere_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🌍 Ecosphere (+5) — Environmental & lifestyle conditions");
+        ui.separator();
+        ui.label("🟡 Partial: food_water_module ✅, sleep_module ✅, breathing_module ✅");
+        ui.label("         Interventions ✅ (P11), AIM integration TODO");
+        ui.add_space(4.0);
+
+        ui.collapsing("🍽️ Food & Water (food_water_module ✅)", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Caloric balance:").on_hover_text("-0.5 = severe CR, 0 = maintenance, +0.5 = overnutrition");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.caloric_balance, -0.5..=0.5).step_by(0.05));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Diet quality:").on_hover_text("1.0 = Mediterranean. ROS↓ ∝ quality");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.diet_quality, 0.0..=1.0).step_by(0.05));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Hydration:").on_hover_text("Autophagy flux ∝ (hydration-0.5)×0.12");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.hydration, 0.0..=1.0).step_by(0.05));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Protein quality:");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.protein_quality, 0.0..=1.0).step_by(0.05));
+            });
+        });
+        ui.collapsing("😴 Sleep (sleep_module ✅)", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Sleep quality:").on_hover_text("1.0 = 8h restorative SWS");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.sleep_quality, 0.0..=1.0).step_by(0.05));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Circadian alignment:");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.circadian_alignment, 0.0..=1.0).step_by(0.05));
+            });
+        });
+        ui.collapsing("🌬️ Breathing (breathing_module ✅)", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("O₂ fraction:").on_hover_text("Sea level = 0.21. Hyperoxia weakens mito shield");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.o2_fraction, 0.10..=0.40).step_by(0.01));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Breathing quality:");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.breathing_quality, 0.0..=1.0).step_by(0.05));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Pollution index:");
+                ui.add(egui::Slider::new(&mut self.state.ecosphere.pollution_index, 0.0..=1.0).step_by(0.05));
+            });
+        });
+        ui.collapsing("💊 Interventions (P11 ✅)", |ui| {
+            ui.label("Senolytics, NAD+, Caloric Restriction, TERT, Antioxidants");
+            ui.label("CafdRetainer, CafdReleaser, CentrosomeTransplant");
+            ui.label("→ See interventions.rs for implementation");
+            ui.label("AIM integration: TODO (ai_intervention_module planned)");
+        });
+    }
+
+    fn show_molecular_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🔬 Molecular — PTM rates & Transcriptome noise");
+        ui.separator();
+
+        ui.label("Centriole PTM rates:");
+        ui.horizontal(|ui| {
+            ui.label("Acetylation rate:").on_hover_text("Гиперацетилирование тубулина материнской центриоли / шаг. → ослабляет связи → O₂-чувствительность↑");
+            if ui.add(Slider::new(&mut self.state.centriole.acetylation_rate, 0.001..=0.050).step_by(0.001)).changed() {
+                self.push_history();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Oxidation rate:").on_hover_text("Окисление тубулина материнской центриоли / шаг. Вклад в total_damage_score.");
+            if ui.add(Slider::new(&mut self.state.centriole.oxidation_rate, 0.001..=0.050).step_by(0.001)).changed() {
+                self.push_history();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Methylation rate:").on_hover_text("Метилирование тубулина / шаг.");
+            if ui.add(Slider::new(&mut self.state.centriole.methylation_rate, 0.0001..=0.001).step_by(0.0001)).changed() {
+                self.push_history();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Phosphorylation rate:").on_hover_text("Дисрегуляция фосфорилирования / шаг.");
+            if ui.add(Slider::new(&mut self.state.centriole.phosphorylation_rate, 0.0001..=0.001).step_by(0.0001)).changed() {
+                self.push_history();
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.label("Transcriptome noise:");
+        ui.horizontal(|ui| {
+            ui.label("Mutation rate:");
+            if ui.add(Slider::new(&mut self.state.transcriptome.mutation_rate, 0.0..=0.01).logarithmic(true)).changed() {
+                self.push_history();
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Noise level:");
+            if ui.add(Slider::new(&mut self.state.transcriptome.noise_level, 0.0..=0.2)).changed() {
+                self.push_history();
+            }
+        });
+    }
+
+    fn show_division_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("⚖️ Division — Asymmetric Division & Track F");
+        ui.separator();
+
+        ui.collapsing("Asymmetric Division Module", |ui| {
+            if ui.checkbox(&mut self.state.asymmetric.enabled, "Enable module").changed() {
+                self.push_history();
+            }
+            if self.state.asymmetric.enabled {
+                ui.horizontal(|ui| {
+                    ui.label("Asymmetric division probability:");
+                    if ui.add(Slider::new(&mut self.state.asymmetric.asymmetric_probability, 0.0..=1.0)).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Self-renewal probability:");
+                    if ui.add(Slider::new(&mut self.state.asymmetric.renewal_probability, 0.0..=1.0)).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Differentiation probability:");
+                    if ui.add(Slider::new(&mut self.state.asymmetric.diff_probability, 0.0..=1.0)).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Niche capacity:");
+                    if ui.add(Slider::new(&mut self.state.asymmetric.niche_capacity, 1..=100)).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Maximum niches:");
+                    if ui.add(Slider::new(&mut self.state.asymmetric.max_niches, 1..=1000)).changed() {
+                        self.push_history();
+                    }
+                });
+                if ui.checkbox(&mut self.state.asymmetric.enable_polarity, "Enable polarity").changed() {
+                    self.push_history();
+                }
+                if ui.checkbox(&mut self.state.asymmetric.enable_fate_determinants, "Enable fate determinants").changed() {
+                    self.push_history();
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("Centriole lifecycle (de novo & meiosis)", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("de_novo_centriole_division:")
+                  .on_hover_text("На каком делении бластомеров создаются de novo центриоли [1..=8]. 4 = Морула.");
+                let mut div = self.state.cdata.de_novo_centriole_division as f32;
+                if ui.add(Slider::new(&mut div, 1.0..=8.0).step_by(1.0).suffix(" деление")).changed() {
+                    self.state.cdata.de_novo_centriole_division = div as u32;
+                    self.push_history();
+                }
+            });
+            let stage_label = match self.state.cdata.de_novo_centriole_division {
+                1     => "Zygote",
+                2 | 3 => "Cleavage",
+                4     => "Morula ✓",
+                5 | 6 => "Blastocyst",
+                _     => "Implantation",
+            };
+            ui.label(format!("→ stage: {}", stage_label));
+            if ui.checkbox(&mut self.state.cdata.meiotic_elimination_enabled, "meiotic_elimination_enabled")
+               .on_hover_text("Учитывать элиминацию центриолей в прелептотенной стадии мейоза.")
+               .changed()
+            {
+                self.push_history();
+            }
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("📉 Track F — Division rate (StemCellDivisionRateState)", |ui| {
+            ui.label("division_rate = cilia_drive × spindle_drive × age_factor × ros_brake × mtor_brake");
+            ui.horizontal(|ui| {
+                ui.label("division_rate_floor:")
+                  .on_hover_text("Нижняя граница age_factor. По умолч.: 0.15");
+                if ui.add(Slider::new(&mut self.state.cdata.division_rate_floor, 0.05..=0.50).step_by(0.01)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("ros_brake_strength:")
+                  .on_hover_text("Сила тормоза ROS: ros_brake = 1 - ros_level × strength. По умолч.: 0.40");
+                if ui.add(Slider::new(&mut self.state.cdata.ros_brake_strength, 0.0..=1.0).step_by(0.05)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("mtor_brake_strength:")
+                  .on_hover_text("Сила тормоза mTOR. По умолч.: 0.35");
+                if ui.add(Slider::new(&mut self.state.cdata.mtor_brake_strength, 0.0..=1.0).step_by(0.05)).changed() {
+                    self.push_history();
+                }
+            });
+        });
+    }
+
+    fn show_niche_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🏘️ Niche / CDATA — Inducer system & niche parameters");
+        ui.separator();
+
+        ui.collapsing("🔬 Inducer system", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("base_detach_probability:")
+                  .on_hover_text("Базовая вероятность отщепления индуктора за шаг (O₂-зависимо)");
+                if ui.add(
+                    Slider::new(&mut self.state.cdata.base_detach_probability, 0.0..=0.01).logarithmic(true)
+                ).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("mother_bias:")
+                  .on_hover_text("Доля отщеплений, приходящаяся на материнскую центриоль");
+                if ui.add(Slider::new(&mut self.state.cdata.mother_bias, 0.0..=1.0)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("age_bias_coefficient:")
+                  .on_hover_text("На сколько возраст усиливает mother_bias за год");
+                if ui.add(
+                    Slider::new(&mut self.state.cdata.age_bias_coefficient, 0.0..=0.01).logarithmic(true)
+                ).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("ptm_exhaustion_scale:")
+                  .on_hover_text("PTM-путь истощения матери (независим от O₂). По умолч.: 0.001");
+                // ptm_exhaustion_scale is not in CdataGuiConfig yet, show placeholder
+                ui.label("(see Molecular tab for PTM rates)");
+            });
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("🧬 Inductor counts & simulation time", |ui| {
+            // These params live in human_development_module; show read-only info
+            // and expose the enable flags that CdataGuiConfig tracks
+            ui.label("mother_inducer_count / daughter_inducer_count: set in simulation config.");
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.label("time_acceleration: set in simulation max_steps (Organism tab).");
+            });
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("🧬 Enable flags", |ui| {
+            if ui.checkbox(&mut self.state.cdata.enable_inducer_system, "Enable inducer system (recommended)")
+               .on_hover_text("true → potency = f(M-set, D-set); false → potency = f(spindle, cilia)")
+               .changed()
+            {
+                self.push_history();
+            }
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("ℹ️ CDATA theory reference", |ui| {
+            ui.label("Jaba Tkemaladze — Centriolar Damage Accumulation Theory of Aging.");
+            ui.label("Six aging tracks: A(cilia) B(spindle) C(telomere) D(epigenetics) E(mito) F(division rate)");
+            ui.label("Senescence threshold: total_damage > 0.75 → niche death ≈ 78 yr.");
+        });
+    }
+
+    fn show_tissue_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🔴 Tissue / Myeloid — Myeloid shift parameters");
+        ui.separator();
+
+        ui.collapsing("🩸 Myeloid shift weights", |ui| {
+            ui.label("Weights should sum to ≈ 1.0 for correct myeloid_bias scaling.");
+
+            ui.horizontal(|ui| {
+                ui.label("spindle_weight:")
+                  .on_hover_text("Вклад потери spindle_fidelity в myeloid_bias. По умолч.: 0.45");
+                if ui.add(Slider::new(&mut self.state.cdata.spindle_weight, 0.0..=1.0)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("cilia_weight:")
+                  .on_hover_text("Вклад потери ciliary_function в myeloid_bias. По умолч.: 0.30");
+                if ui.add(Slider::new(&mut self.state.cdata.cilia_weight, 0.0..=1.0)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("ros_weight:")
+                  .on_hover_text("Вклад ros_level в myeloid_bias. По умолч.: 0.15");
+                if ui.add(Slider::new(&mut self.state.cdata.ros_weight, 0.0..=1.0)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("aggregate_weight:")
+                  .on_hover_text("Вклад protein_aggregates в myeloid_bias. По умолч.: 0.10");
+                if ui.add(Slider::new(&mut self.state.cdata.aggregate_weight, 0.0..=1.0)).changed() {
+                    self.push_history();
+                }
+            });
+
+            let total = self.state.cdata.spindle_weight
+                + self.state.cdata.cilia_weight
+                + self.state.cdata.ros_weight
+                + self.state.cdata.aggregate_weight;
+            let color = if (total - 1.0).abs() < 0.05 { egui::Color32::GREEN } else { egui::Color32::YELLOW };
+            ui.colored_label(color, format!("Σ = {:.2} (target: 1.00)", total));
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("Inflammaging feedback fine-tuning", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("ros_boost_scale:").on_hover_text("Масштаб усиления ROS через воспаление. Дефолт: 0.15");
+                if ui.add(Slider::new(&mut self.state.cdata.ros_boost_scale, 0.0..=0.5).step_by(0.01)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("niche_impair_scale:").on_hover_text("Масштаб угнетения ниши через воспаление. Дефолт: 0.08");
+                if ui.add(Slider::new(&mut self.state.cdata.niche_impair_scale, 0.0..=0.3).step_by(0.01)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("spindle_nonlinearity_exponent:").on_hover_text("Степень нелинейности spindle: (1-spindle)^exp. Дефолт: 1.5");
+                if ui.add(Slider::new(&mut self.state.cdata.spindle_nonlinearity_exponent, 0.5..=3.0).step_by(0.1)).changed() {
+                    self.push_history();
+                }
+            });
+        });
+    }
+
+    fn show_organism_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("🫀 Organism — Damage preset & Simulation config");
+        ui.separator();
+
+        ui.collapsing("⚡ Damage preset (DamageParams)", |ui| {
+            ui.label("Scales all damage rates in DamageParams.");
+            let current_label = self.state.cdata.damage_preset.label();
+            ComboBox::from_label("Preset")
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_value(&mut self.state.cdata.damage_preset, DamagePreset::Normal, DamagePreset::Normal.label()).clicked() {
+                        self.push_history();
+                    }
+                    if ui.selectable_value(&mut self.state.cdata.damage_preset, DamagePreset::Progeria, DamagePreset::Progeria.label()).clicked() {
+                        self.push_history();
+                    }
+                    if ui.selectable_value(&mut self.state.cdata.damage_preset, DamagePreset::Longevity, DamagePreset::Longevity.label()).clicked() {
+                        self.push_history();
+                    }
+                });
+            match self.state.cdata.damage_preset {
+                DamagePreset::Normal    => { ui.label("Standard rates. Expected lifespan ≈ 78 yr."); }
+                DamagePreset::Progeria  => { ui.label("Rates ×5. Accelerated aging (Hutchinson-Gilford syndrome)."); }
+                DamagePreset::Longevity => { ui.label("Rates ×0.6. Slower damage accumulation → longevity."); }
+            };
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("Simulation config (basic)", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Max steps:");
+                if ui.add(Slider::new(&mut self.state.simulation.max_steps, 1..=1_000_000)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Time step (dt):");
+                if ui.add(Slider::new(&mut self.state.simulation.dt, 0.001..=1.0).logarithmic(true)).changed() {
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Random seed:");
+                let mut seed = self.state.simulation.seed.unwrap_or(42);
+                if ui.add(Slider::new(&mut seed, 0..=999_999)).changed() {
+                    self.state.simulation.seed = Some(seed);
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Number of threads:");
+                let mut threads = self.state.simulation.num_threads.unwrap_or(1);
+                if ui.add(Slider::new(&mut threads, 1..=64)).changed() {
+                    self.state.simulation.num_threads = Some(threads);
+                    self.push_history();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Checkpoint interval:");
+                if ui.add(Slider::new(&mut self.state.simulation.checkpoint_interval, 1..=10_000)).changed() {
+                    self.push_history();
+                }
+            });
+            if ui.checkbox(&mut self.state.simulation.parallel_modules, "Parallel module execution").changed() {
+                self.push_history();
+            }
+        });
+
+        ui.add_space(4.0);
+        ui.label("🌍 Ecosphere conditions → see Ecosphere tab (+5)");
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.collapsing("📊 CDATA Impact Showcase (pre-computed aging curves)", |ui| {
+            self.show_visualization_tab(ui);
+        });
+    }
+
+    fn show_system_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("⚙️ System — I/O & Visualization config");
+        ui.separator();
+
+        ui.collapsing("💾 I/O Config", |ui| {
+            if ui.checkbox(&mut self.state.io.enabled, "Enable I/O").changed() {
+                self.push_history();
+            }
+            if self.state.io.enabled {
+                ui.horizontal(|ui| {
+                    ui.label("Output directory:");
+                    if ui.text_edit_singleline(&mut self.state.io.output_dir).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Format:");
+                    ComboBox::from_id_source("io_format_sys")
+                        .selected_text(&self.state.io.format)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.state.io.format, "csv".to_string(), "CSV");
+                            ui.selectable_value(&mut self.state.io.format, "parquet".to_string(), "Parquet");
+                            ui.selectable_value(&mut self.state.io.format, "hdf5".to_string(), "HDF5");
+                        });
+                    self.push_history();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Compression:");
+                    ComboBox::from_id_source("io_compression_sys")
+                        .selected_text(&self.state.io.compression)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.state.io.compression, "none".to_string(), "None");
+                            ui.selectable_value(&mut self.state.io.compression, "snappy".to_string(), "Snappy");
+                            ui.selectable_value(&mut self.state.io.compression, "gzip".to_string(), "Gzip");
+                        });
+                    self.push_history();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Buffer size:");
+                    if ui.add(Slider::new(&mut self.state.io.buffer_size, 100..=10000)).changed() {
+                        self.push_history();
+                    }
+                });
+                if ui.checkbox(&mut self.state.io.save_checkpoints, "Save checkpoints").changed() {
+                    self.push_history();
+                }
+                if self.state.io.save_checkpoints {
+                    ui.horizontal(|ui| {
+                        ui.label("Checkpoint interval:");
+                        if ui.add(Slider::new(&mut self.state.io.checkpoint_interval, 10..=1000)).changed() {
+                            self.push_history();
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Maximum checkpoints:");
+                        if ui.add(Slider::new(&mut self.state.io.max_checkpoints, 1..=100)).changed() {
+                            self.push_history();
+                        }
+                    });
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("📊 Visualization Config", |ui| {
+            if ui.checkbox(&mut self.state.viz.enabled, "Enable visualization").changed() {
+                self.push_history();
+            }
+            if self.state.viz.enabled {
+                ui.horizontal(|ui| {
+                    ui.label("Output directory:");
+                    if ui.text_edit_singleline(&mut self.state.viz.output_dir).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Update interval:");
+                    if ui.add(Slider::new(&mut self.state.viz.update_interval, 1..=1000)).changed() {
+                        self.push_history();
+                    }
+                });
+                if ui.checkbox(&mut self.state.viz.save_plots, "Save plots").changed() {
+                    self.push_history();
+                }
+                if ui.checkbox(&mut self.state.viz.phase_distribution, "Phase distribution").changed() {
+                    self.push_history();
+                }
+                if ui.checkbox(&mut self.state.viz.maturity_histogram, "Maturity histogram").changed() {
+                    self.push_history();
+                }
+                if ui.checkbox(&mut self.state.viz.heatmap, "Heatmap").changed() {
+                    self.push_history();
+                }
+                if ui.checkbox(&mut self.state.viz.timeseries, "Timeseries").changed() {
+                    self.push_history();
+                }
+                if ui.checkbox(&mut self.state.viz.three_d_enabled, "3D visualization").changed() {
+                    self.push_history();
+                }
+            }
+        });
+
+        ui.add_space(4.0);
+
+        ui.collapsing("Output directory (simulation)", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Output directory:");
+                let output_str = self.state.simulation.output_dir.to_string_lossy().to_string();
+                let mut output = output_str.clone();
+                if ui.text_edit_singleline(&mut output).changed() && output != output_str {
+                    self.state.simulation.output_dir = PathBuf::from(output);
+                    self.push_history();
+                }
+            });
+        });
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.label(egui::RichText::new("👥 Social Level (+9) — planned modules").strong());
+        ui.label("Modules not yet implemented. Planned effect on metrics:");
+        ui.collapsing("social_support_module (planned)", |ui| {
+            ui.label("Social support index [0..1] → cortisol↓ → ROS↓, inflammaging↓");
+            ui.label("Affects: ROS, Myeloid Bias, Frailty, Lifespan");
+            ui.label("Dataset: Holt-Lunstad 2015 (N=308,849) — social isolation HR=1.29");
+        });
+        ui.collapsing("loneliness_module (planned)", |ui| {
+            ui.label("Loneliness index [0..1] → CRP↑ → SASP↑ → myeloid_bias↑");
+            ui.label("Affects: Myeloid Bias, Protein Aggregation, Biological Age");
+            ui.label("Dataset: Cacioppo & Hawkley 2010 — loneliness → accelerated aging");
+        });
+        ui.collapsing("socioeconomic_module (planned)", |ui| {
+            ui.label("SES index → healthcare access → intervention availability");
+            ui.label("Affects: all metrics via intervention probability");
+            ui.label("Dataset: Marmot Review 2010 — SES gradient in all-cause mortality");
+        });
+    }
+
+    #[allow(dead_code)]
     fn show_simulation_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("⚙️ Main Simulation Parameters");
         ui.separator();
@@ -1779,38 +3322,15 @@ impl ConfigApp {
     }
     
     fn show_centriole_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("🔬 Centriole Module");
+        ui.heading("🔵 Centriole Module");
+        ui.label("PTM rates (acetylation, oxidation, methylation, phosphorylation) are in the Molecular tab.");
         ui.separator();
-        
+
         if ui.checkbox(&mut self.state.centriole.enabled, "Enable module").changed() {
             self.push_history();
         }
-        
+
         if self.state.centriole.enabled {
-            ui.horizontal(|ui| {
-                ui.label("Acetylation rate:").on_hover_text("Гиперацетилирование тубулина материнской центриоли / шаг. → ослабляет связи → O₂-чувствительность↑");
-                if ui.add(Slider::new(&mut self.state.centriole.acetylation_rate, 0.0..=0.1).step_by(0.00001)).changed() {
-                    self.push_history();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Oxidation rate:").on_hover_text("Окисление тубулина материнской центриоли / шаг. Вклад в total_damage_score.");
-                if ui.add(Slider::new(&mut self.state.centriole.oxidation_rate, 0.0..=0.1).step_by(0.00001)).changed() {
-                    self.push_history();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Methylation rate:").on_hover_text("Метилирование тубулина / шаг. Меньший эффект чем ацетилирование, но накапливается.");
-                if ui.add(Slider::new(&mut self.state.centriole.methylation_rate, 0.0..=0.001).step_by(0.000001)).changed() {
-                    self.push_history();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Phosphorylation rate:").on_hover_text("Дисрегуляция фосфорилирования / шаг. Влияет на структурную стабильность центриоли.");
-                if ui.add(Slider::new(&mut self.state.centriole.phosphorylation_rate, 0.0..=0.001).step_by(0.000001)).changed() {
-                    self.push_history();
-                }
-            });
             ui.horizontal(|ui| {
                 ui.label("Daughter PTM factor:").on_hover_text("Коэффициент PTM дочерней центриоли от материнской [0..1]. 0.4 = дочерняя накапливает 40% PTM матери.");
                 if ui.add(Slider::new(&mut self.state.centriole.daughter_ptm_factor, 0.0..=1.0).step_by(0.05)).changed() {
@@ -1830,7 +3350,7 @@ impl ConfigApp {
     }
     
     fn show_cell_cycle_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("🔄 Cell Cycle Module");
+        ui.heading("♻️ Cell Cycle Module");
         ui.separator();
         
         if ui.checkbox(&mut self.state.cell_cycle.enabled, "Enable module").changed() {
@@ -1916,6 +3436,7 @@ impl ConfigApp {
         }
     }
     
+    #[allow(dead_code)]
     fn show_asymmetric_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("⚖️ Asymmetric Division Module");
         ui.separator();
@@ -2016,6 +3537,7 @@ impl ConfigApp {
         }
     }
     
+    #[allow(dead_code)]
     fn show_io_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("💾 I/O Module");
         ui.separator();
@@ -2377,6 +3899,7 @@ impl ConfigApp {
         self.state.show_about = open;
     }
 
+    #[allow(dead_code)]
     fn show_cdata_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading("🔴 CDATA / Aging — параметры теории CDATA");
         ui.separator();
