@@ -110,26 +110,19 @@
 
 ## TODO — Cell-DT Engineering (следующие задачи по коду)
 
-### 🔴 Срочно
+### ✅ Выполнено в сессии 2026-03-24
 
-- [ ] **P65: SenescenceAccumulation loop** — замкнуть петлю: division_rate → senescent_fraction → SASP → division_rate
-  - Новый компонент `SenescenceAccumulationState` (частично реализован в P52)
-  - Новый модуль `senescence_accumulation_module` + ≥4 теста
-- [ ] **P66: TrackAB cross-feedback** — одновременная потеря cilia + spindle → нелинейный myeloid_bias
-  - Обновить `human_development_module` и `myeloid_shift_module` (частично: TrackABCrossState есть)
-  - ≥3 теста
-- [ ] **P67: CSV-экспорт PTM-траекторий** — колонки carbonylation/hyperacetylation/aggregation/phospho_dysreg/appendage_loss
-  - Интеграция с `CdataExporter` (p54/p55 частично)
-- [ ] **P68: Параметрический sweep M₀/D₀** — как начальные индукторы влияют на lifespan (P59 частично)
+- [x] **P65: SenescenceAccumulation loop** — петля замкнута: division_rate→senescent_fraction→SASP→div_rate; SenescenceAccumulationState как ECS-компонент; 4 теста
+- [x] **P66: TrackAB cross-feedback** — TrackABCrossState активен; combined_dysfunction×0.20 boost в myeloid_bias; 3 теста
+- [x] **P67: CSV-экспорт PTM-траекторий** — CdataRecord расширен 5 PTM-колонками (carbonylation/hyperacetylation/aggregation/phospho_dysreg/appendage_loss); 2 теста
+- [x] **P68: Параметрический sweep M₀/D₀** — inducer_sweep_example.rs (24 комбинации); 2 теста; CSV в inducer_sweep_output/
+- [x] **GitHub CI/CD** — .github/workflows/ci.yml обновлён (dtolnay, cache v4, cargo test --workspace)
+- [x] **crates.io** — cell_dt_core готов: metadata, README, keywords, categories, самоцитирование
 
-### 🟡 Важно
+### 🟡 Важно (следующая очередь)
 
-- [ ] **GUI: реальный запуск симуляции** — сейчас RUN SIMULATION = demo progress bar
-  - Подключить `SimulationManager` к GUI через `std::thread::spawn` + `Arc<Mutex<Progress>>`
-  - Отображать реальный `sim.current_step()` + OrganismState в bottom panel
-- [ ] **GUI: экспорт результатов** — после окончания симуляции сохранить CSV в `output_dir`
-- [ ] **GitHub CI/CD** — добавить `cargo test` + `cargo build` в GitHub Actions
-- [ ] **crates.io** — подготовить `cell_dt_core` к публикации (README, license, docs)
+- [ ] **GUI: реальный запуск симуляции** — сейчас RUN SIMULATION подключён к движку (mpsc), но нет экспорта
+- [ ] **GUI: экспорт результатов** — после окончания симуляции сохранить CSV в `output_dir` через CdataExporter
 
 ### 🟢 Долгосрочно
 
