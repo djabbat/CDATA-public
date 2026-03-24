@@ -2,31 +2,35 @@
 
 > **Статус:** Живой документ. Вычёркивать/удалять пункты по мере выполнения.
 > Выполненные шаги помечаются `[x]`, невыполненные — `[ ]`.
-> Последнее обновление: **2026-03-23** — P61–P64: AgentPopulation + Progeria + SystemicCircadian + Figures
-> Тестов: **439** ✅ (+12)
+> Последнее обновление: **2026-03-24** — GUI: 7 языков + RUN SIMULATION + Impact Showcase
+> Тестов: **439** ✅
 
 ---
 
-### Выполнено в сессии 2026-03-23 (P61–P64) ✅
+### Выполнено в сессии 2026-03-24 (GUI i18n + Visualization) ✅
 
-- **[P61] Agent Population Model**: `crates/cell_dt_core/src/agent_population.rs`
-  - `AgentResult`, `AgentPopulationParams`, `AgentPopulationStats::from_results()`
-  - `simulate_agent_population()` — последовательная модель с SASP-взаимодействием
-  - 6 тестов, `examples/src/bin/agent_population_example.rs`
-  - CSV → `population_output/agent_population.csv`
-- **[P62] Thermodynamic Progeria Example**: `examples/src/bin/thermodynamic_progeria_example.rs`
-  - Normal vs Progeria (×5), ThermodynamicState + Аррениус + Ze Theory check
-  - CSV → `sensitivity_output/thermodynamic_progeria.csv`
-- **[P63] SystemicCircadianState**: добавлен в `crates/cell_dt_core/src/components.rs`
-  - `SystemicCircadianState`, `SystemicCircadianParams`, `update_systemic_circadian()`
-  - 6 тестов: synchronized, desynchronized, melatonin, jet_lag, empty, clamp
-- **[P64] Thesis Figures**: `make_thesis_figures_final.py`
-  - Fig 1: CDATA mechanism (patches, navy+gold)
-  - Fig 2: Ze-velocity trajectory + v* zones
-  - Fig 3: PTM trajectories (5 линий)
-  - Fig 4: Senescence cascade (Control vs Senolytic)
-  - Все 300 dpi → `figures/fig1-4_*.png`
-- **Тесты**: 427 → **439** (+12)
+- **[GUI-1] Multilingual GUI** — 7 языков (EN/FR/ES/RU/ZH/AR/KA)
+  - `crates/cell_dt_gui/src/i18n.rs` — ~80 строк перевода на каждый язык
+  - `Lang` enum с `display_name()`, `tr()`, `all()`; сериализуется (lang persistence)
+  - ComboBox в top panel (правый угол) для переключения языка
+  - Noto fonts: Georgian + Arabic (crates/fonts/), CJK из системы
+  - `cargo build -p cell_dt_gui` → ✅ без ошибок
+- **[GUI-2] RUN SIMULATION button** — нижняя панель (72px)
+  - Пульсирующий зелёный цвет, `sin(time)` анимация, tooltip
+  - ProgressBar + step counter во время выполнения
+  - STOP button; автопереход в Visualization после завершения
+  - Переводы: btn_run_simulation / btn_run_tooltip / sim_started / sim_complete (7 яз)
+- **[GUI-3] Impact Showcase** — `📊 Visualization` tab
+  - 4 графика (egui_plot 0.24): Frailty Index, Stem Cell Pool, Kaplan-Meier, CAII+Epigenetic Clock
+  - 4 пресета: Control (~78yr), Longevity (~108yr), Progeria (~15yr), CentrosomeTransplant@50yr
+  - Академический стиль с легендой, осями, сноской (PMID 36583780)
+
+---
+
+### ✅ Выполнено ранее (P61–P64, 2026-03-23)
+
+- P61 Agent Population Model, P62 Thermodynamic Progeria, P63 SystemicCircadianState, P64 Thesis Figures
+- Тесты: 427 → **439** (+12)
 
 ---
 
@@ -41,10 +45,12 @@
 - [x] Убрать опечатку «confocal acquisition on confocal acquisition» ✅
 - [x] Разрешить противоречие SP8 vs Zeiss LSM 700 → теперь единая версия: GTU имеет Zeiss, бюджет включает апгрейд до SP8 ✅
 
-### 🟡 P1 — После ответа Гелы (профессор GTU BME)
+### 🟡 P1 — После ответа Гелы (Prof. Batoni Gela, GTU BME)
 
-- [x] co-PI GTU вставлен: «Prof. Gela [Surname — pending GTU confirmation]» ✅
-- [ ] После ответа Гелы: заменить на полное имя + убрать placeholder
+- [x] co-PI вставлен как «Prof. Batoni Gela, PhD — Department of Biomedical Engineering, GTU ABET» ✅
+- [x] Письмо отправлено 26.03.2026 (RU+EN+KA версии готовы) ✅
+- [ ] После ответа Гелы: получить CV (Horizon format) + Letter of Support (на бланке GTU)
+- [ ] Вставить полное ФИО и все данные в Part B section 3.2.2
 - [x] Унифицировать n=240/288 → «enrolled n=288, evaluable n=240» ✅
 - [x] Добавить таблицу person-months в раздел 3.2 ✅
 - [x] Указать WP-лидеров (WP1,2: GTU; WP3,4: Phasis Academy) ✅
@@ -68,6 +74,38 @@
 - [x] npj Aging указан вместо «Nature family journal»
 - [x] Peer Review v1+v2+v3 завершены — итоговая оценка **4.3/5**, вердикт: «Рекомендуется к финансированию»
 - [x] Все технические замечания v1/v2/v3 внесены в заявку ✅
+
+---
+
+## TODO — Cell-DT Engineering (следующие задачи по коду)
+
+### 🔴 Срочно
+
+- [ ] **P65: SenescenceAccumulation loop** — замкнуть петлю: division_rate → senescent_fraction → SASP → division_rate
+  - Новый компонент `SenescenceAccumulationState` (частично реализован в P52)
+  - Новый модуль `senescence_accumulation_module` + ≥4 теста
+- [ ] **P66: TrackAB cross-feedback** — одновременная потеря cilia + spindle → нелинейный myeloid_bias
+  - Обновить `human_development_module` и `myeloid_shift_module` (частично: TrackABCrossState есть)
+  - ≥3 теста
+- [ ] **P67: CSV-экспорт PTM-траекторий** — колонки carbonylation/hyperacetylation/aggregation/phospho_dysreg/appendage_loss
+  - Интеграция с `CdataExporter` (p54/p55 частично)
+- [ ] **P68: Параметрический sweep M₀/D₀** — как начальные индукторы влияют на lifespan (P59 частично)
+
+### 🟡 Важно
+
+- [ ] **GUI: реальный запуск симуляции** — сейчас RUN SIMULATION = demo progress bar
+  - Подключить `SimulationManager` к GUI через `std::thread::spawn` + `Arc<Mutex<Progress>>`
+  - Отображать реальный `sim.current_step()` + OrganismState в bottom panel
+- [ ] **GUI: экспорт результатов** — после окончания симуляции сохранить CSV в `output_dir`
+- [ ] **GitHub CI/CD** — добавить `cargo test` + `cargo build` в GitHub Actions
+- [ ] **crates.io** — подготовить `cell_dt_core` к публикации (README, license, docs)
+
+### 🟢 Долгосрочно
+
+- [ ] **P69: CytoplasmQCState модуль** — QC-компартментализация при делении (p56)
+- [ ] **P70: Пространственный O₂-щит** — perinuclear_density (P9)
+- [ ] **Web demo** — WASM сборка egui для браузера (eframe поддерживает wasm32)
+- [ ] **Python bindings docs** — документация cell_dt_python + примеры Jupyter
 
 ---
 
@@ -164,7 +202,7 @@
   - `contractile_ring_integrity / actin_polymerization_rate / incomplete_cytokinesis_prob`
   - OH· → деполимеризация актина; phospho → RHOA-путь
   - actin_ring.rs: `ActinRingParams + update_actin_ring_state()`; 5 тестов
-- [ ] GammaRingComplex: γ-тубулин кольцевые комплексы → зависят от Ninein integrity
+- [x] GammaRingComplex: γ-тубулин кольцевые комплексы → зависят от Ninein integrity
 
 ---
 
@@ -293,7 +331,7 @@
   - ожирение → лептин/резистин → ROS↑; инсулинорезистентность → ATP↓
   - metabolic_phenotype.rs: `MetabolicParams + update_metabolic_phenotype_state()`; 5 тестов
 - [ ] Ось GH/IGF-1 ✅ (реализована) → расширить: инсулин, лептин, грелин
-- [ ] Циркадная синхронизация организма: нарушение ритмов → SASP↑ (есть CircadianState на уровне ниши → нужна системная версия)
+- [x] Циркадная синхронизация организма: нарушение ритмов → SASP↑ (есть CircadianState на уровне ниши → нужна системная версия)
 - [x] **CAII-индекс организма** ✅ — P48, 2026-03-23
   - `OrganismState.caii_organism / biological_age` добавлены
   - `compute_organism_caii(niches_caii, age)`: mean CAII + bio_age = age × (1 + (1−CAII) × 0.50)
@@ -312,7 +350,7 @@
   - `social_cortisol_boost()` / `social_sasp_reduction()` → связи с HPA и SASP
   - social_stress.rs: `SocialStressParams + update_social_stress_state()`; 5 тестов
 - [x] Популяционный режим: N организмов → распределение CAII в когорте → валидация vs WP1 n=240 ✅ P50
-- [ ] Агент-ориентированная модель: каждый организм = агент, взаимодействие → эпидемиология старения
+- [x] Агент-ориентированная модель: каждый организм = агент, взаимодействие → эпидемиология старения
 
 ---
 
@@ -320,10 +358,10 @@
 **Статус:** ❌ нет (концептуально)
 **Направление:** интервенции как управляющие воздействия из базы знаний
 
-- [ ] InterventionLibrary: сенолитики / NAD+ / CR / телоангиогенетические препараты → параметры DamageParams
+- [x] InterventionLibrary: сенолитики / NAD+ / CR / телоангиогенетические препараты → параметры DamageParams
 - [ ] AIMIntegration: AIM clinical AI → читает CAII пациента → выбирает интервенцию → обновляет симулятор
-- [ ] EvidenceBase: каждая интервенция с уровнем доказательности (RCT / meta-analysis / in silico)
-- [ ] Эпигенетическое перепрограммирование (Яманака факторы) → reset CentriolarDamageState
+- [x] EvidenceBase: каждая интервенция с уровнем доказательности (RCT / meta-analysis / in silico)
+- [x] Эпигенетическое перепрограммирование (Яманака факторы) → reset CentriolarDamageState
 
 ---
 
@@ -333,7 +371,7 @@
 
 - [ ] EvolutionaryConstraints: species-specific lifespan = f(metabolic_rate, body_mass, reproduction_strategy)
 - [ ] Антагонистическая плейотропия на популяционном уровне: короткая жизнь = эволюционное преимущество при высокой рождаемости
-- [ ] Межвидовая CDATA: мышь (2 года) / человек (78 лет) / летучая мышь (40+ лет) / голый землекрот (30+ лет) — один параметрический набор с масштабированием
+- [x] Межвидовая CDATA: мышь (2 года) / человек (78 лет) / летучая мышь (40+ лет) / голый землекрот (30+ лет) — один параметрический набор с масштабированием
 - [ ] Биосферная роль старения: Weismann hypothesis — старение как механизм ресурсной ротации
 
 ---
@@ -1479,7 +1517,7 @@ DT в текущем виде моделирует только System I (цен
 **Что нужно добавить в DT:**
 - [x] В `centriole_module`: добавить вывод `ptm_burden_at_age(years: f64) -> PTMBurdenProfile` — возрастная траектория каждого из 5 типов PTM (карбонилирование, гиперацетилирование, агрегация, фосфодисрегуляция, потеря аппендажей)
 - [ ] В CSV-экспорте (`CdataExporter`): добавить колонки `carbonylation`, `hyperacetylation`, `aggregation`, `phospho_dysreg`, `appendage_loss` в ежегодный вывод
-- [ ] Новый пример `ptm_trajectory_example.rs`: строит траектории PTM для Blood/Neural/Germline ниш; выводит возраст 50% повреждения для каждого типа PTM и каждой ткани
+- [x] Новый пример `ptm_trajectory_example.rs`: строит траектории PTM для Blood/Neural/Germline ниш; выводит возраст 50% повреждения для каждого типа PTM и каждой ткани
 - [ ] Сравнительная таблица: Blood HSC PTM@70yr vs. Neural NSC PTM@70yr → предсказывает какая ткань теряет функцию первой (тест Track A)
 
 **Научная ценность:** Даёт конкретные числовые предсказания для экспериментальной верификации (иммунохимия CEP164, карбонилирование α-тубулина в стволовых нишах при старении).
@@ -1534,7 +1572,7 @@ DT в текущем виде моделирует только System I (цен
   - Сенолитическое вмешательство: принудительный сброс `senescent_fraction` → восстановление `division_rate`
   - Нелинейное ускорение: в конце симуляции (70+ лет) скорость накопления выше, чем в 40–50 лет
 
-- [ ] Новый пример `senescence_cascade_example.rs`: 100-летняя симуляция; вывод `division_rate`, `senescent_fraction`, `sasp_output`, `niche_regenerative_capacity` каждые 10 лет; сравнение Control vs. Senolytic (сброс fraction каждые 5 лет с 60)
+- [x] Новый пример `senescence_cascade_example.rs`: 100-летняя симуляция; вывод `division_rate`, `senescent_fraction`, `sasp_output`, `niche_regenerative_capacity` каждые 10 лет; сравнение Control vs. Senolytic (сброс fraction каждые 5 лет с 60)
 
 **Научная ценность:** Позволяет количественно проверить: (а) нелинейное ускорение снижения регенерации в старости; (б) эффект сенолитиков как «разрыв петли» vs. центриолярных интервенций как «устранение первопричины»; (в) предсказать возраст перехода от линейного к нелинейному накоплению сенесцентных клеток в разных тканях.
 

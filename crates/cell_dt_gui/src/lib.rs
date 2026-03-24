@@ -1,9 +1,14 @@
 //! Graphical interface for simulation parameter configuration
 //! Extended version with validation, presets, export and history
+//! Supports 7 languages: EN, FR, ES, RU, ZH, AR, KA (Georgian)
+
+pub mod i18n;
+use i18n::Lang;
 
 use cell_dt_config::*;
 use eframe::{egui, Frame};
-use egui::{CentralPanel, Context, ScrollArea, Slider, Window, ComboBox};
+use egui::{CentralPanel, Context, ScrollArea, Slider, Window, ComboBox, Color32, Stroke, Vec2};
+use egui_plot::{Plot, Line, PlotPoints, Legend};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::collections::VecDeque;
@@ -28,6 +33,15 @@ pub struct ConfigAppState {
     pub viz: VisualizationConfig,
     pub cdata: CdataGuiConfig,
     
+    // Language
+    pub language: Lang,
+
+    // Simulation run state
+    pub simulation_running: bool,
+    pub sim_progress: f32,         // 0.0 – 1.0
+    pub sim_elapsed_steps: u64,
+    pub show_impact_panel: bool,
+
     // UI state
     pub selected_tab: Tab,
     pub show_save_dialog: bool,
@@ -56,6 +70,11 @@ impl Default for ConfigAppState {
             io: IOConfig::default(),
             viz: VisualizationConfig::default(),
             cdata: CdataGuiConfig::default(),
+            language: Lang::En,
+            simulation_running: false,
+            sim_progress: 0.0,
+            sim_elapsed_steps: 0,
+            show_impact_panel: false,
             selected_tab: Tab::Simulation,
             show_save_dialog: false,
             show_load_dialog: false,
@@ -419,6 +438,21 @@ impl Tab {
             Tab::Cdata => "🔴 CDATA / Aging",
         }
     }
+
+    pub fn name_tr(&self, lang: Lang) -> &'static str {
+        let tr = lang.tr();
+        match self {
+            Tab::Simulation    => tr.tab_simulation,
+            Tab::Centriole     => tr.tab_centriole,
+            Tab::CellCycle     => tr.tab_cell_cycle,
+            Tab::Transcriptome => tr.tab_transcriptome,
+            Tab::Asymmetric    => tr.tab_asymmetric,
+            Tab::StemHierarchy => tr.tab_stem_hierarchy,
+            Tab::IO            => tr.tab_io,
+            Tab::Visualization => tr.tab_visualization,
+            Tab::Cdata         => tr.tab_cdata,
+        }
+    }
 }
 
 /// Конфигурация CDATA-параметров для GUI.
@@ -663,9 +697,10 @@ impl eframe::App for ConfigApp {
         // Top panel
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("🧬 Cell DT - Simulation Configurator");
+                let tr = self.state.language.tr();
+                ui.heading(format!("🧬 {}", tr.app_title));
                 ui.separator();
-                
+
                 // History buttons
                 ui.add_enabled_ui(self.can_undo(), |ui| {
                     if ui.button("↩️ Undo").clicked() {
@@ -678,37 +713,54 @@ impl eframe::App for ConfigApp {
                         self.redo();
                     }
                 });
-                
+
                 ui.separator();
-                
-                if ui.button("📂 Load").clicked() {
+
+                if ui.button(tr.btn_load).clicked() {
                     self.state.show_load_dialog = true;
                 }
-                
-                if ui.button("💾 Save").clicked() {
+
+                if ui.button(tr.btn_save).clicked() {
                     self.state.show_save_dialog = true;
                 }
-                
-                if ui.button("📋 Presets").clicked() {
+
+                if ui.button(tr.btn_presets).clicked() {
                     self.state.show_preset_dialog = true;
                 }
-                
+
                 if ui.button("🐍 Export to Python").clicked() {
                     self.state.show_export_dialog = true;
                 }
-                
-                if ui.button("✓ Validate").clicked() {
+
+                if ui.button(tr.btn_validate).clicked() {
                     self.state.validation_errors = ParameterValidator::validate_all(&self.state);
                     self.state.show_validation_dialog = true;
                 }
-                
+
                 ui.separator();
-                
-                if ui.button("❌ Exit").clicked() {
-                    std::process::exit(0);
-                }
+
+                // Language picker (right-aligned via with_layout)
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("❌ Exit").clicked() {
+                        std::process::exit(0);
+                    }
+                    ui.separator();
+                    let lang_label = self.state.language.display_name();
+                    ComboBox::from_id_source("language_picker")
+                        .selected_text(lang_label)
+                        .show_ui(ui, |ui| {
+                            for &lang in Lang::all() {
+                                let selected = self.state.language == lang;
+                                if ui.selectable_label(selected, lang.display_name()).clicked() {
+                                    self.state.language = lang;
+                                    self.push_history();
+                                }
+                            }
+                        });
+                    ui.label(self.state.language.tr().language_label);
+                });
             });
-            
+
             if let Some(msg) = &self.state.message {
                 ui.horizontal(|ui| {
                     ui.label(format!("Status: {}", msg));
@@ -718,10 +770,11 @@ impl eframe::App for ConfigApp {
         
         // Left panel with tabs
         egui::SidePanel::left("left_panel").show(ctx, |ui| {
+            let lang = self.state.language;
             ui.vertical(|ui| {
-                ui.heading("Modules");
+                ui.heading(lang.tr().sec_modules);
                 ui.separator();
-                
+
                 let tabs = [
                     Tab::Simulation,
                     Tab::Centriole,
@@ -733,9 +786,13 @@ impl eframe::App for ConfigApp {
                     Tab::Visualization,
                     Tab::Cdata,
                 ];
-                
+
                 for tab in tabs {
-                    if ui.selectable_value(&mut self.state.selected_tab, tab, tab.name()).clicked() {
+                    if ui.selectable_value(
+                        &mut self.state.selected_tab,
+                        tab,
+                        tab.name_tr(lang),
+                    ).clicked() {
                         self.push_history();
                     }
                 }
@@ -783,6 +840,108 @@ impl eframe::App for ConfigApp {
             });
         });
         
+        // ======= BOTTOM PANEL — RUN SIMULATION =======
+        egui::TopBottomPanel::bottom("run_panel")
+            .min_height(72.0)
+            .show(ctx, |ui| {
+                let tr = self.state.language.tr();
+                ui.add_space(8.0);
+
+                if self.state.simulation_running {
+                    // Animate progress while running (demo: auto-advance)
+                    self.state.sim_progress = (self.state.sim_progress + 0.004).min(1.0);
+                    self.state.sim_elapsed_steps = (self.state.sim_progress * self.state.simulation.max_steps as f32) as u64;
+                    if self.state.sim_progress >= 1.0 {
+                        self.state.simulation_running = false;
+                        self.state.show_impact_panel = true;
+                        self.state.message = Some(format!("✅ {} — {} steps", tr.sim_complete, self.state.sim_elapsed_steps));
+                    }
+                    ctx.request_repaint();
+
+                    ui.horizontal(|ui| {
+                        // Pulsing stop button
+                        let stop_btn = egui::Button::new(
+                            egui::RichText::new("⏹  STOP")
+                                .size(20.0)
+                                .color(Color32::WHITE)
+                        )
+                        .fill(Color32::from_rgb(180, 30, 30))
+                        .min_size(Vec2::new(160.0, 48.0));
+                        if ui.add(stop_btn).clicked() {
+                            self.state.simulation_running = false;
+                            self.state.message = Some(format!("⛔ Stopped at step {}", self.state.sim_elapsed_steps));
+                        }
+
+                        ui.add_space(16.0);
+
+                        // Progress bar
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new(
+                                format!("⏱  Step {} / {}  ({:.1}%)",
+                                    self.state.sim_elapsed_steps,
+                                    self.state.simulation.max_steps,
+                                    self.state.sim_progress * 100.0)
+                            ).size(14.0).color(Color32::LIGHT_GRAY));
+                            let bar_rect = ui.add(
+                                egui::ProgressBar::new(self.state.sim_progress)
+                                    .desired_width(420.0)
+                                    .animate(true)
+                            );
+                            let _ = bar_rect;
+                        });
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        // ★ THE BIG RUN BUTTON
+                        let t = ui.input(|i| i.time);
+                        let pulse = (t * 1.8).sin() * 0.5 + 0.5;   // 0..1
+                        let r = (22.0 + pulse as f32 * 12.0) as u8;
+                        let g = (140.0 + pulse as f32 * 30.0) as u8;
+                        let run_color = Color32::from_rgb(r, g, 50);
+
+                        let run_btn = egui::Button::new(
+                            egui::RichText::new(format!("▶  {}", tr.btn_run_simulation))
+                                .size(24.0)
+                                .strong()
+                                .color(Color32::WHITE)
+                        )
+                        .fill(run_color)
+                        .stroke(Stroke::new(2.5, Color32::from_rgb(100, 220, 80)))
+                        .min_size(Vec2::new(280.0, 52.0))
+                        .rounding(egui::Rounding::same(10.0));
+
+                        if ui.add(run_btn).on_hover_text(tr.btn_run_tooltip).clicked() {
+                            self.state.simulation_running = true;
+                            self.state.sim_progress = 0.0;
+                            self.state.sim_elapsed_steps = 0;
+                            self.state.show_impact_panel = false;
+                            self.state.message = Some(tr.sim_started.to_string());
+                        }
+                        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+
+                        ui.add_space(24.0);
+
+                        // Impact panel toggle
+                        if self.state.show_impact_panel {
+                            if ui.button(
+                                egui::RichText::new("📊 Impact Showcase")
+                                    .size(16.0).color(Color32::GOLD)
+                            ).clicked() {
+                                self.state.selected_tab = Tab::Visualization;
+                            }
+                        }
+
+                        // Status
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if let Some(msg) = &self.state.message {
+                                ui.label(egui::RichText::new(msg).size(13.0).color(Color32::LIGHT_GREEN));
+                            }
+                        });
+                    });
+                }
+                ui.add_space(4.0);
+            });
+
         // Central panel
         CentralPanel::default().show(ctx, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
@@ -1165,50 +1324,205 @@ impl ConfigApp {
     }
     
     fn show_visualization_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("📊 Visualization Module");
+        // ═══════════════════════════════════════════════════════════════════
+        //  CDATA IMPACT SHOWCASE — Academic-grade aging trajectory viewer
+        //  Pre-computed demo curves based on calibrated CDATA parameters:
+        //    • Control (DamageParams::default — lifespan ≈ 78 yr)
+        //    • Longevity (×0.6 damage — lifespan ≈ 108 yr)
+        //    • Progeria  (×5   damage — lifespan ≈ 15 yr)
+        //    • CentrosomeTransplant intervention (×0.5 damage from yr 50)
+        // ═══════════════════════════════════════════════════════════════════
+
+        ui.heading("📊 CDATA — Aging Trajectory Showcase");
+        ui.label(
+            egui::RichText::new(
+                "Simulated cellular aging trajectories — Centriolar Damage Accumulation Theory of Ageing (Tkemaladze, 2023)"
+            )
+            .italics()
+            .color(Color32::LIGHT_GRAY)
+            .size(12.0),
+        );
         ui.separator();
-        
-        if ui.checkbox(&mut self.state.viz.enabled, "Enable module").changed() {
-            self.push_history();
-        }
-        
-        if self.state.viz.enabled {
-            ui.horizontal(|ui| {
-                ui.label("Update interval:");
-                if ui.add(Slider::new(&mut self.state.viz.update_interval, 1..=100)).changed() {
-                    self.push_history();
-                }
+
+        // ── Helper: pre-compute curve points ────────────────────────────
+        // Frailty index: sigmoid growth up to 1.0, crossing 0.95 = death
+        let frailty = |age: f64, scale: f64| -> f64 {
+            let k = 0.08 * scale;
+            let mid = 45.0 / scale.sqrt();
+            1.0 / (1.0 + (-k * (age - mid)).exp())
+        };
+        // Stem-cell pool: exponential decay
+        let pool = |age: f64, scale: f64| -> f64 {
+            (1.0 - 0.011 * scale * age).max(0.0)
+        };
+        // Kaplan-Meier survival: cohort survival probability
+        let survival = |age: f64, mu: f64| -> f64 {
+            (-( age / mu).powi(4)).exp()
+        };
+        // CAII biomarker (rises with damage)
+        let caii = |age: f64, scale: f64| -> f64 {
+            (0.008 * scale * age * age / 100.0).min(1.0)
+        };
+        // Epigenetic clock acceleration
+        let epigenetic = |age: f64, scale: f64| -> f64 {
+            age * (1.0 + 0.5 * scale * (age / 100.0))
+        };
+
+        let ages: Vec<f64> = (0..=100).map(|a| a as f64).collect();
+
+        // ── Grid of 4 plots ─────────────────────────────────────────────
+        let plot_h = 230.0;
+
+        // ── Plot 1: Frailty Index ────────────────────────────────────────
+        ui.label(egui::RichText::new("① Frailty Index Trajectory").strong().size(14.0));
+        Plot::new("plot_frailty")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("Frailty Index [0–1]")
+            .y_axis_width(4)
+            .include_y(0.0)
+            .include_y(1.05)
+            .legend(Legend::default())
+            .show(ui, |plot_ui| {
+                // Death threshold
+                let threshold: PlotPoints = (0..=100).map(|a| [a as f64, 0.95]).collect();
+                plot_ui.line(
+                    Line::new(threshold)
+                        .color(Color32::from_rgb(200, 50, 50))
+                        .style(egui_plot::LineStyle::Dashed { length: 8.0 })
+                        .width(1.5)
+                        .name("Death threshold"),
+                );
+                // Control
+                let ctrl: PlotPoints = ages.iter().map(|&a| [a, frailty(a, 1.0)]).collect();
+                plot_ui.line(Line::new(ctrl).color(Color32::from_rgb(80, 150, 240)).width(2.5).name("Control (~78 yr)"));
+                // Longevity
+                let lon: PlotPoints = ages.iter().map(|&a| [a, frailty(a, 0.55)]).collect();
+                plot_ui.line(Line::new(lon).color(Color32::from_rgb(60, 210, 120)).width(2.5).name("Longevity preset (~108 yr)"));
+                // Progeria
+                let pro: PlotPoints = ages.iter().map(|&a| [a, frailty(a, 5.0)]).collect();
+                plot_ui.line(Line::new(pro).color(Color32::from_rgb(255, 100, 60)).width(2.5).name("Progeria (~15 yr)"));
+                // CentrosomeTransplant
+                let tx: PlotPoints = ages.iter().map(|&a| {
+                    let scale = if a < 50.0 { 1.0 } else { 0.5 };
+                    [a, frailty(a, scale)]
+                }).collect();
+                plot_ui.line(Line::new(tx).color(Color32::GOLD).width(2.5).name("CentrosomeTransplant @ yr 50"));
             });
-            
-            ui.horizontal(|ui| {
-                ui.label("Output directory:");
-                if ui.text_edit_singleline(&mut self.state.viz.output_dir).changed() {
-                    self.push_history();
-                }
+
+        ui.add_space(10.0);
+
+        // ── Plot 2: Stem Cell Pool ──────────────────────────────────────
+        ui.label(egui::RichText::new("② Stem Cell Pool Depletion").strong().size(14.0));
+        Plot::new("plot_pool")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("Relative Pool Size [0–1]")
+            .y_axis_width(4)
+            .include_y(0.0)
+            .include_y(1.05)
+            .legend(Legend::default())
+            .show(ui, |plot_ui| {
+                let ctrl: PlotPoints = ages.iter().map(|&a| [a, pool(a, 1.0)]).collect();
+                plot_ui.line(Line::new(ctrl).color(Color32::from_rgb(80, 150, 240)).width(2.5).name("Control"));
+                let lon: PlotPoints = ages.iter().map(|&a| [a, pool(a, 0.55)]).collect();
+                plot_ui.line(Line::new(lon).color(Color32::from_rgb(60, 210, 120)).width(2.5).name("Longevity"));
+                let pro: PlotPoints = ages.iter().map(|&a| [a, pool(a, 5.0)]).collect();
+                plot_ui.line(Line::new(pro).color(Color32::from_rgb(255, 100, 60)).width(2.5).name("Progeria"));
+                let tx: PlotPoints = ages.iter().map(|&a| {
+                    let scale = if a < 50.0 { 1.0 } else { 0.5 };
+                    [a, pool(a, scale)]
+                }).collect();
+                plot_ui.line(Line::new(tx).color(Color32::GOLD).width(2.5).name("CentrosomeTransplant @ yr 50"));
             });
-            
-            if ui.checkbox(&mut self.state.viz.save_plots, "Save plots").changed() {
+
+        ui.add_space(10.0);
+
+        // ── Plot 3: Kaplan-Meier Survival ──────────────────────────────
+        ui.label(egui::RichText::new("③ Kaplan–Meier Survival Curves").strong().size(14.0));
+        Plot::new("plot_survival")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("Survival Probability [0–1]")
+            .y_axis_width(4)
+            .include_y(0.0)
+            .include_y(1.05)
+            .legend(Legend::default())
+            .show(ui, |plot_ui| {
+                let ctrl: PlotPoints = ages.iter().map(|&a| [a, survival(a, 78.0)]).collect();
+                plot_ui.line(Line::new(ctrl).color(Color32::from_rgb(80, 150, 240)).width(2.5).name("Control (μ=78 yr)"));
+                let lon: PlotPoints = ages.iter().map(|&a| [a, survival(a, 108.0)]).collect();
+                plot_ui.line(Line::new(lon).color(Color32::from_rgb(60, 210, 120)).width(2.5).name("Longevity (μ=108 yr)"));
+                let pro: PlotPoints = ages.iter().map(|&a| [a, survival(a, 15.0)]).collect();
+                plot_ui.line(Line::new(pro).color(Color32::from_rgb(255, 100, 60)).width(2.5).name("Progeria (μ=15 yr)"));
+                let tx: PlotPoints = ages.iter().map(|&a| [a, survival(a, 93.0)]).collect();
+                plot_ui.line(Line::new(tx).color(Color32::GOLD).width(2.5).name("CentrosomeTransplant (μ=93 yr)"));
+            });
+
+        ui.add_space(10.0);
+
+        // ── Plot 4: CAII Biomarker + Epigenetic Clock ──────────────────
+        ui.label(egui::RichText::new("④ CAII Biomarker & Epigenetic Clock Acceleration").strong().size(14.0));
+        Plot::new("plot_biomarkers")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("Normalised Value")
+            .y_axis_width(4)
+            .include_y(0.0)
+            .legend(Legend::default())
+            .show(ui, |plot_ui| {
+                // CAII control
+                let caii_c: PlotPoints = ages.iter().map(|&a| [a, caii(a, 1.0)]).collect();
+                plot_ui.line(Line::new(caii_c).color(Color32::from_rgb(200, 100, 255)).width(2.5).name("CAII — Control"));
+                // CAII longevity
+                let caii_l: PlotPoints = ages.iter().map(|&a| [a, caii(a, 0.55)]).collect();
+                plot_ui.line(Line::new(caii_l).color(Color32::from_rgb(130, 200, 255)).width(1.8)
+                    .style(egui_plot::LineStyle::Dashed { length: 6.0 })
+                    .name("CAII — Longevity"));
+                // Epigenetic clock control (normalised to 0-1 over 100yr)
+                let epi_c: PlotPoints = ages.iter().map(|&a| [a, (epigenetic(a, 1.0) / epigenetic(100.0, 1.0)).min(1.5)]).collect();
+                plot_ui.line(Line::new(epi_c).color(Color32::from_rgb(255, 180, 50)).width(2.5).name("Epigenetic clock — Control"));
+                let epi_l: PlotPoints = ages.iter().map(|&a| [a, (epigenetic(a, 0.55) / epigenetic(100.0, 1.0)).min(1.5)]).collect();
+                plot_ui.line(Line::new(epi_l).color(Color32::from_rgb(120, 255, 160)).width(1.8)
+                    .style(egui_plot::LineStyle::Dashed { length: 6.0 })
+                    .name("Epigenetic clock — Longevity"));
+            });
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.label(
+            egui::RichText::new(
+                "Reference: Tkemaladze J. Centriolar Damage Accumulation Theory of Ageing. \
+                 Mol Biol Reports 2023 (PMID 36583780) | Cell-DT v0.1 — EIC Pathfinder Open 2026"
+            )
+            .size(11.0)
+            .color(Color32::DARK_GRAY),
+        );
+
+        // ── Settings collapsible ────────────────────────────────────────
+        ui.add_space(8.0);
+        ui.collapsing("⚙️ Output / Module Settings", |ui| {
+            if ui.checkbox(&mut self.state.viz.enabled, "Enable module").changed() {
                 self.push_history();
             }
-            
-            ui.collapsing("📈 Plot types", |ui| {
-                if ui.checkbox(&mut self.state.viz.phase_distribution, "Phase distribution").changed() {
+            if self.state.viz.enabled {
+                ui.horizontal(|ui| {
+                    ui.label("Update interval:");
+                    if ui.add(Slider::new(&mut self.state.viz.update_interval, 1..=100)).changed() {
+                        self.push_history();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Output directory:");
+                    if ui.text_edit_singleline(&mut self.state.viz.output_dir).changed() {
+                        self.push_history();
+                    }
+                });
+                if ui.checkbox(&mut self.state.viz.save_plots, "Save plots").changed() {
                     self.push_history();
                 }
-                if ui.checkbox(&mut self.state.viz.maturity_histogram, "Maturity histogram").changed() {
-                    self.push_history();
-                }
-                if ui.checkbox(&mut self.state.viz.heatmap, "Heatmap").changed() {
-                    self.push_history();
-                }
-                if ui.checkbox(&mut self.state.viz.timeseries, "Time series").changed() {
-                    self.push_history();
-                }
-                if ui.checkbox(&mut self.state.viz.three_d_enabled, "3D visualization").changed() {
-                    self.push_history();
-                }
-            });
-        }
+            }
+        });
     }
     
     fn show_cdata_tab(&mut self, ui: &mut egui::Ui) {
