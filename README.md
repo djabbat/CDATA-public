@@ -753,10 +753,46 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 3. **Tkemaladze J.** Reduction, proliferation, and differentiation defects of
    stem cells over time: a consequence of selective accumulation of old centrioles
    in the stem cells? *Molecular Biology Reports*, 50(3):2751–2761, 2023.
+   PMID: 36583780. https://pubmed.ncbi.nlm.nih.gov/36583780/
 
 4. **Tkemaladze J.** The Centriolar Theory of Differentiation Explains the
    Biological Meaning of the Centriolar Theory of Organismal Aging.
    *Longevity Horizon*, 1(3), 2025.
+
+5. **Tkemaladze J., Chichinadze K.** Potential role of centrioles in determining
+   the morphogenetic status of animal somatic cells. *Cell Biology International*,
+   29(5):370–374, 2005. PMID: 15886028.
+   https://pubmed.ncbi.nlm.nih.gov/15886028/
+
+6. **Tkemaladze J., Chichinadze K.** Centriole, differentiation, and senescence.
+   *Rejuvenation Research*, 13(2–3):339–342, 2010. PMID: 20426623.
+   https://pubmed.ncbi.nlm.nih.gov/20426623/
+
+7. **Lezhava T., Jokhadze T., Tkemaladze J., Tsiskarishvili N., Chikava L.**
+   Gerontology research in Georgia. *Biogerontology*, 12(2):87–91, 2011.
+   PMID: 20480236. https://pubmed.ncbi.nlm.nih.gov/20480236/
+
+8. **Chichinadze K., Tkemaladze J., Lazarashvili A.** Discovery of centrosomal RNA
+   and centrosomal hypothesis of cellular ageing and differentiation.
+   *Nucleosides, Nucleotides and Nucleic Acids*, 31(3):172–183, 2012.
+   PMID: 22356233. https://pubmed.ncbi.nlm.nih.gov/22356233/
+
+9. **Chichinadze K., Lazarashvili A., Tkemaladze J.** RNA in centrosomes:
+   structure and possible functions. *Protoplasma*, 250(1):397–405, 2013.
+   PMID: 22684578. https://pubmed.ncbi.nlm.nih.gov/22684578/
+
+10. **Tkemaladze J.** Editorial: Molecular mechanism of ageing and therapeutic
+    advances through targeting glycative and oxidative stress.
+    *Frontiers in Pharmacology*, 14:1324446, 2024. PMID: 38510429.
+    https://pubmed.ncbi.nlm.nih.gov/38510429/
+
+11. **Tkemaladze J.** CDATA Digital Twin — Cell Differentiation and Aging
+    Simulation Platform (v0.3). *Zenodo*, 2026.
+    DOI: https://doi.org/10.5281/zenodo.19174506
+
+12. **Tkemaladze J.** Ze Vector Theory of Biological Aging — Validation Dataset
+    and Analysis Scripts. *Zenodo*, 2026.
+    DOI: https://doi.org/10.5281/zenodo.19174630
 
 ---
 
@@ -887,3 +923,434 @@ The `cell_dt_gui` crate (egui) maps directly to this hierarchy:
 5. SocialStressState: stress → cortisol → ROS → CDATA (надклеточный вход)
 ```
 
+
+---
+
+## 12. Graphical Interface — Cell DT GUI
+
+> **Launch:**
+> ```bash
+> cargo run --bin cell_dt_gui --release
+> # or
+> ./run_gui.sh
+> ```
+> Window size: 1200 × 820 px (resizable, min 900 × 650).
+
+---
+
+### 12.1 Layout — five zones
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  TOP PANEL (2 rows)                                             │
+│  Row 1: 🧬 title                    language ▾   ❌ Exit        │
+│  Row 2: ↩️Undo  ↪️Redo │ Load Save Presets 🐍Export Validate   │
+├──────────────────┬──────────────────────────────┬───────────────┤
+│                  │                              │               │
+│   LEFT PANEL     │     CENTRAL PANEL            │  RIGHT PANEL  │
+│   (tab list)     │  (tab content / dashboard)   │  (realtime)   │
+│                  │                              │               │
+├──────────────────┴──────────────────────────────┴───────────────┤
+│  BOTTOM PANEL: ▶ Run Simulation  │  ← Back to settings          │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 12.2 Top panel
+
+**Row 1 — title and application controls**
+
+| Element | Description |
+|---------|-------------|
+| `🧬 Cell DT — Simulation Configurator` | Application title; changes to the localized variant when a non-English language is selected |
+| Language picker | Drop-down: **EN · FR · ES · RU · ZH · AR · KA** (Georgian). Fonts loaded automatically: NotoSansGeorgian, NotoSansArabic, NotoSansCJK |
+| ❌ Exit | Terminates the process immediately (`std::process::exit(0)`) |
+
+**Row 2 — action toolbar (left-aligned)**
+
+| Button | Shortcut logic | Effect |
+|--------|---------------|--------|
+| `↩️ Undo` | Grayed when no history | Restores previous parameter state (up to 50 steps) |
+| `↪️ Redo` | Grayed when at latest state | Re-applies undone change |
+| `Load` | — | Opens the **Load dialog** — select a `.toml` or `.yaml` config file |
+| `Save` | — | Opens the **Save dialog** — write current settings to file |
+| `Presets` | — | Opens the **Presets dialog** — choose from 6 ready-made configurations |
+| `🐍 Export to Python` | — | Opens the **Python Export dialog** — generates a ready-to-run `cell_dt` Python script |
+| `Validate` | — | Runs parameter validation; opens the **Validation dialog** with a list of errors and warnings |
+| Status message | Auto | Green text showing the last event (simulation started, completed, stopped, error) |
+
+---
+
+### 12.3 Left panel — tab navigation
+
+Nine tabs are listed vertically. The active tab is highlighted. Clicking a tab also records a history snapshot.
+
+| Icon | Tab name | Module |
+|------|----------|--------|
+| ⚙️ | Simulation | `SimulationConfig` |
+| 🔬 | Centriole | `CentrioleConfig` |
+| 🔄 | Cell Cycle | `CellCycleConfig` |
+| 🧬 | Transcriptome | `TranscriptomeConfig` |
+| ⚖️ | Asymmetric Division | `AsymmetricDivisionConfig` |
+| 🌱 | Stem Hierarchy | `StemHierarchyConfig` |
+| 💾 | I/O | `IOConfig` |
+| 📊 | Visualization | `VisualizationConfig` |
+| 🔴 | CDATA / Aging | `CdataGuiConfig` |
+
+---
+
+### 12.4 Right panel — real-time visualization
+
+A collapsible side panel with a checkbox **Enable**. When enabled, the GUI continuously snapshots selected parameter values (up to 100 snapshots in a ring buffer) and displays the current value next to each parameter name. Parameters tracked by default:
+
+- `simulation.max_steps`
+- `centriole.acetylation_rate`
+- `cell_cycle.base_cycle_time`
+
+An **⚙️ Settings** collapsible inside the panel allows adding more parameters to the list.
+
+---
+
+### 12.5 Bottom panel
+
+**While simulation is running:**
+
+| Element | Description |
+|---------|-------------|
+| `⏹ STOP` | Dark-red button; stops the simulation immediately and records the step at which it stopped |
+| Progress bar | `egui::ProgressBar` with animation; shows `Step N / M (X.X%)` above |
+
+**While simulation is idle:**
+
+| Element | Description |
+|---------|-------------|
+| `▶ Run Simulation` | Dark-navy button (`#10 1E 34`) with a slow teal breathing glow (~0.7 Hz); text color `#DC E8 F8`. Starts the simulation. |
+| `← Back to settings` | Appears only after a simulation has completed. Returns the central panel from the results dashboard to the tab view. |
+
+---
+
+### 12.6 Central panel — tab contents
+
+#### ⚙️ Simulation tab
+
+Core execution parameters. All controls record an undo snapshot on change.
+
+| Parameter | Type | Range | Default | Notes |
+|-----------|------|-------|---------|-------|
+| Number of steps | Slider | 1 – 1 000 000 | — | Total ECS steps per run |
+| Time step (dt) | Slider (log) | 0.001 – 1.0 | — | Simulation time per step; values > 1 trigger a validation warning |
+| Checkpoint interval | Slider | 1 – 10 000 | — | Steps between state saves |
+| Number of threads | Slider | 1 – 64 | 1 | Rayon thread pool size |
+| Random seed | Slider | 0 – 999 999 | 42 | Reproducibility seed |
+| Output directory | Text field | — | `results/` | Directory for CSV / checkpoint output |
+| Parallel module execution | Checkbox | — | off | Run modules in parallel within each step |
+
+---
+
+#### 🔬 Centriole tab
+
+Controls the `CentrioleModule` — PTM accumulation on the mother/daughter centriole pair.
+
+| Parameter | Range | Default | Notes |
+|-----------|-------|---------|-------|
+| Enable module | checkbox | on | |
+| Acetylation rate | 0 – 0.1 | 0.0002 | Tubulin acetylation per step (mother); validation: must stay in range |
+| Oxidation rate | 0 – 0.1 | 0.0001 | Tubulin oxidation per step (mother) |
+| Parallel cell processing | checkbox | off | Processes all centriole ECS entities with Rayon |
+
+---
+
+#### 🔄 Cell Cycle tab
+
+Controls the `CellCycleModule` — G1/S/G2/M phase progression, cyclins, and checkpoints.
+
+| Parameter | Range | Default | Notes |
+|-----------|-------|---------|-------|
+| Enable module | checkbox | on | |
+| Base cycle duration | 1 – 100 h | 24.0 | Full G1→M cycle length in hours |
+| Checkpoint strictness | 0 – 1 | 0.0 | 0 = no arrests; 0.3 = moderate; 0.7 = strict G1/G2 arrest |
+| Enable apoptosis | checkbox | on | Trigger apoptosis when checkpoint arrest is unresolved |
+| Nutrient availability | 0 – 1 | — | Scales G1 progression |
+| Growth factor level | 0 – 1 | — | Scales cyclin D accumulation |
+| Random variation | 0 – 1 | — | Langevin noise on cycle duration |
+
+---
+
+#### 🧬 Transcriptome tab
+
+Controls the `TranscriptomeModule` — gene expression states (p21, p16, cyclin D/E, MYC) and mutation accumulation.
+
+| Parameter | Range | Default | Notes |
+|-----------|-------|---------|-------|
+| Enable module | checkbox | on | |
+| Mutation rate | 0 – 0.01 (log) | 0.0001 | Somatic mutation rate per step; validation: must be ≤ 0.1 |
+| Noise level | 0 – 0.5 | 0.02 | Stochastic noise on gene expression levels |
+
+---
+
+#### ⚖️ Asymmetric Division tab
+
+Controls the `AsymmetricDivisionModule` — division type classification, NichePool management, and CHIP drift.
+
+| Parameter | Range | Default | Notes |
+|-----------|-------|---------|-------|
+| Enable module | checkbox | on | |
+| Asymmetric division probability | 0 – 1 | 0.30 | Probability of an asymmetric outcome per division |
+| Self-renewal probability | 0 – 1 | 0.40 | Probability of symmetric renewal |
+| Differentiation probability | 0 – 1 | 0.30 | Probability of symmetric differentiation |
+| Niche capacity | 1 – 100 | 10 | Maximum stem cells per niche |
+| Maximum niches | 1 – 1000 | 100 | Total number of niches in the simulation |
+| Enable polarity | checkbox | on | Activates spindle-orientation polarity logic |
+| Enable fate determinants | checkbox | on | Activates Numb/Wnt asymmetric fate determinants |
+
+> **Validation:** sum of the three division probabilities must be ≈ 1.0 (tolerance 0.01); niche_capacity must be > 0.
+
+---
+
+#### 🌱 Stem Hierarchy tab
+
+Controls the `StemCellHierarchyModule` — potency level tracking and plasticity.
+
+| Parameter | Type | Default | Notes |
+|-----------|------|---------|-------|
+| Enable module | checkbox | on | |
+| Initial potency level | Dropdown | Pluripotent | Totipotent / Pluripotent / Multipotent / Differentiated |
+| Enable plasticity | checkbox | on | Allow dedifferentiation |
+| Plasticity rate | 0 – 0.1 (log) | 0.01 | Per-step probability of dedifferentiation |
+| Differentiation threshold | 0 – 1 | 0.70 | `spindle_fidelity` below this value triggers potency drop |
+
+---
+
+#### 💾 I/O tab
+
+Controls file output — CSV export, checkpoints, compression.
+
+| Parameter | Type | Default | Notes |
+|-----------|------|---------|-------|
+| Enable module | checkbox | on | |
+| Output directory | Text field | `results` | Destination for all output files |
+| Format | Dropdown | CSV | CSV · Parquet · HDF5 |
+| Compression | Dropdown | None | None · Snappy · Gzip |
+| Buffer size | 100 – 10 000 | 1000 | Write buffer in rows |
+| Save checkpoints | checkbox | on | |
+| Checkpoint interval | 10 – 1000 | 100 | Steps between checkpoint writes |
+| Maximum checkpoints | 1 – 100 | 10 | Older checkpoints are deleted when limit is reached |
+
+---
+
+#### 📊 Visualization tab — Aging Trajectory Showcase
+
+Four interactive plots, each 230 px tall. All curves are pre-computed from calibrated CDATA model equations. Plots support **zoom** (scroll), **pan** (drag), and **legend toggle** (click on a legend entry).
+
+**① Frailty Index Trajectory**
+
+`frailty(age, scale) = 1 / (1 + exp(−0.08·scale·(age − 45/√scale)))`
+
+Four curves + a horizontal dashed **Death threshold** at 0.95:
+
+| Curve | Color | Scale | Predicted lifespan |
+|-------|-------|-------|--------------------|
+| Control | Blue | 1.0 | ~78 yr |
+| Longevity preset | Green | 0.55 | ~108 yr |
+| Progeria | Orange | 5.0 | ~15 yr |
+| CentrosomeTransplant @ yr 50 | Gold | 1.0→0.5 | ~93 yr |
+
+**② Stem Cell Pool Depletion**
+
+`pool(age, scale) = max(0, 1 − 0.011·scale·age)`
+
+Same four scenarios. Pool reaching zero corresponds to pancytopenia (death criterion).
+
+**③ Kaplan–Meier Survival Curves**
+
+`S(age, μ) = exp(−(age/μ)⁴)`
+
+Cohort survival probability. Median (μ) values: 78, 108, 15, 93 yr.
+
+**④ CAII Biomarker & Epigenetic Clock Acceleration**
+
+- CAII (carbonic anhydrase II marker): `caii(age, scale) = min(1, 0.008·scale·age²/100)`
+- Epigenetic clock: `epi(age, scale) = age·(1 + 0.5·scale·age/100)` normalised to [0..1.5]
+
+Both shown for Control (solid) and Longevity (dashed).
+
+**Collapsible output settings:** enable/disable the module, update interval (1–100 steps), output directory, save plots on/off.
+
+**Citation footer:** *Tkemaladze J. Mol Biol Reports 2023 (PMID 36583780)*
+
+---
+
+#### 🔴 CDATA / Aging tab
+
+The core CDATA theory parameters. All controls are grouped in collapsible sections.
+
+**🔬 Inducer system**
+
+| Parameter | Range | Default | Biological meaning |
+|-----------|-------|---------|-------------------|
+| `base_detach_probability` | 0 – 0.01 (log) | 0.0003 | Per-step O₂-dependent probability of losing one inducer from the mother or daughter centriole. Calibrated to produce lifespan ≈ 78 yr. |
+| `mother_bias` | 0 – 1 | 0.60 | Fraction of total detachments falling on the **mother** centriole (older, more PTM-covered centriole). 0 = symmetric; 1 = mother only. |
+| `age_bias_coefficient` | 0 – 0.01 (log) | 0.003 | How much each additional year of age further shifts the bias toward the mother centriole. |
+
+**🧬 Inductor lifecycle**
+
+| Parameter | Range | Default | Biological meaning |
+|-----------|-------|---------|-------------------|
+| `de_novo_centriole_division` | 1 – 8 (integer) | 4 | Blastomere division number (from zygote) at which centrioles with differentiation inductors are assembled de novo. 4 = morula (16-cell stage) — the human biological default. Earlier stages have `inductors_active = false`. Stage label shown live (Zygote / Cleavage / Morula ✓ / Blastocyst / Implantation). |
+| `meiotic_elimination_enabled` | checkbox | on | When enabled, the Adolescence stage registers meiotic elimination of centrioles; the next generation starts from DifferentiationStatus::Totipotent. Biologically correct default: on. |
+
+**🩸 Myeloid shift (weights)**
+
+Weights for the formula:
+`myeloid_bias = spindle_w·(1−spindle)^1.5 + cilia_w·(1−cilia) + ros_w·ros + agg_w·aggregates`
+
+| Parameter | Range | Default |
+|-----------|-------|---------|
+| `spindle_weight` | 0 – 1 | 0.45 |
+| `cilia_weight` | 0 – 1 | 0.30 |
+| `ros_weight` | 0 – 1 | 0.15 |
+| `aggregate_weight` | 0 – 1 | 0.10 |
+
+A live **Σ indicator** shows the current sum in green (≈ 1.00) or yellow (off-target).
+
+**⚡ Damage preset**
+
+| Preset | Scale | Expected lifespan |
+|--------|-------|------------------|
+| Normal aging | ×1.0 | ~78 yr |
+| Progeria (×5 rates) | ×5.0 | ~15 yr (Hutchinson-Gilford) |
+| Longevity (×0.6 rates) | ×0.6 | ~108 yr |
+
+**🔋 Track E — Mitochondria (read-only formula display)**
+
+Shows the equations linking mtDNA mutations → ROS → fusion index → mito_shield → O₂ at centriole. Reference only; parameters are controlled by `MitochondrialModule`.
+
+**📉 Track F — Division rate**
+
+`division_rate = cilia_drive × spindle_drive × age_factor × ros_brake × mtor_brake`
+
+| Parameter | Range | Default | Effect |
+|-----------|-------|---------|--------|
+| `division_rate_floor` | 0.05 – 0.50 | 0.15 | Minimum value of `age_factor` (prevents division rate from reaching zero in elderly) |
+| `ros_brake_strength` | 0 – 1 | 0.40 | `ros_brake = 1 − ros_level × strength` |
+| `mtor_brake_strength` | 0 – 1 | 0.35 | `mtor_brake = 1 − max(0, mtor−0.3) × strength` |
+
+---
+
+### 12.7 Live dashboard (during and after simulation)
+
+When the RUN button is pressed, the central panel switches from the tab view to the **Live Dashboard**. The dashboard remains visible after the simulation finishes, until the user clicks **← Back to settings**.
+
+**Header line:**
+```
+Age  42.7 yr    step 15 623  /  36 500    42.8%
+```
+Updates every ~50 ms during the run.
+
+**Three interactive plots (all zoomable / pannable):**
+
+| Plot | Y-axis | Curves |
+|------|--------|--------|
+| **Frailty index** | 0 – 1 | Control (blue), Longevity (green), Progeria (orange) + gold **"Now" cursor** |
+| **Stem-cell pool** | 0 – 1 | Same three scenarios + cursor |
+| **Biomarkers** | 0 – 1 (normalised) | ROS (red), Myeloid bias (amber), Telomere length (cyan), Epigenetic clock (purple) + cursor |
+
+The **gold dashed cursor** is synchronized to `sim_progress → current age (years)` and moves right as the simulation advances.
+
+**Footer note:** *Curves are calibrated CDATA model projections. Real-time ECS data will replace these in v0.4.*
+
+---
+
+### 12.8 Dialogs
+
+#### Save / Load
+
+Both dialogs present a single text field for the file path and a **Save / Load** button plus **Cancel**. Format is auto-detected from the file extension (`.toml` or `.yaml`).
+
+#### Presets
+
+Six ready-made configurations. Each shows an icon, name, and one-line description. Clicking **Apply** overwrites the current settings and adds a history snapshot.
+
+| Preset | Icon | Key settings |
+|--------|------|-------------|
+| Quick Test | ⚡ | 100 steps, dt 0.1, centriole + cell cycle only |
+| Standard Experiment | 🔬 | 10 000 steps, dt 0.05, 8 threads, all core modules |
+| High Performance | 🚀 | 100 000 steps, 16 threads, parallel modules, no viz/checkpoints |
+| Stem Cells | 🌱 | 50 000 steps, asymmetric_probability 0.4, Pluripotent start |
+| Cell Cycle | 🔄 | 20 000 steps, dt 0.02, checkpoint_strictness 0.3, apoptosis on |
+| Transcriptome Analysis | 🧬 | 5 000 steps, dt 0.05, mutation_rate 0.001, Parquet+Snappy output |
+
+#### Export to Python
+
+Generates a complete Python script (`cell_dt` PyO3 bindings) reflecting the current GUI settings:
+- `PySimulation(max_steps, dt, num_threads, seed)`
+- `create_population(100)` or `create_population_with_transcriptome(100)`
+- `PyCellCycleParams(...)` with all cell cycle sliders
+- `register_modules(enable_centriole, enable_cell_cycle, ...)`
+- `sim.run()` + analysis + `matplotlib` bar chart of phase distribution
+
+Two buttons: **📋 Copy to clipboard** and **💾 Save as script.py**.
+
+#### Validation
+
+Runs `ParameterValidator::validate_all()` and lists all findings:
+
+| Check | Severity |
+|-------|----------|
+| max_steps = 0 | ❌ Error |
+| dt ≤ 0 | ❌ Error |
+| dt > 1.0 | ⚠️ Warning |
+| acetylation/oxidation rates out of [0, 0.1] | ❌ Error |
+| base_cycle_time ≤ 0 | ❌ Error |
+| checkpoint_strictness outside [0, 1] | ❌ Error |
+| mutation_rate outside [0, 0.1] | ❌ Error |
+| sum of division probabilities ≠ 1 | ⚠️ Warning |
+| niche_capacity = 0 | ❌ Error |
+
+Shows a **Close** button. All errors must be resolved before results can be considered valid.
+
+---
+
+### 12.9 History system (Undo / Redo)
+
+- Every interactive control (slider, checkbox, combo, text field) calls `push_history()` on change.
+- History is a `VecDeque<ConfigAppState>` with a maximum of **50 states**.
+- `Undo` decrements the index and restores the snapshot; `Redo` increments it.
+- The Undo button is grayed when the index is at 0; Redo is grayed when at the latest state.
+- Simulation run-state fields (`simulation_running`, `sim_progress`, `sim_elapsed_steps`) are **not** subject to Undo — only parameter configuration is tracked.
+
+---
+
+### 12.10 Multilingual support
+
+Seven languages are available in the language picker. The UI font stack is extended at startup:
+
+| Language | Font added | Notes |
+|----------|-----------|-------|
+| English / French / Spanish / Russian | System default | Latin + Cyrillic covered |
+| Georgian (KA) | `NotoSansGeorgian-Regular.ttf` | Bundled in `crates/cell_dt_gui/fonts/` |
+| Arabic (AR) | `NotoSansArabic-Regular.ttf` | Bundled; right-to-left rendering via egui |
+| Chinese (ZH) | `NotoSansCJK-Regular.ttc` | Loaded from system path if present |
+
+All translatable strings are defined in `crates/cell_dt_gui/src/i18n.rs` as static `Translations` structs keyed by `Lang` enum.
+
+---
+
+### 12.11 Build and run
+
+```bash
+# Development build
+cargo build -p cell_dt_gui
+
+# Release build (recommended — significantly faster rendering)
+cargo build -p cell_dt_gui --release
+
+# Run directly
+cargo run --bin cell_dt_gui --release
+
+# Via shell wrapper (sets RUST_LOG and working directory)
+./run_gui.sh
+```
+
+Dependencies: `eframe 0.27`, `egui 0.27`, `egui_plot 0.27`, `serde` + `serde_json`.

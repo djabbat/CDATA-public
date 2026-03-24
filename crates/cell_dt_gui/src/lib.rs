@@ -7,7 +7,7 @@ use i18n::Lang;
 
 use cell_dt_config::*;
 use eframe::{egui, Frame};
-use egui::{CentralPanel, Context, ScrollArea, Slider, Window, ComboBox, Color32, Stroke, Vec2};
+use egui::{CentralPanel, Context, ScrollArea, Slider, Window, ComboBox, Color32, Stroke};
 use egui_plot::{Plot, Line, PlotPoints, Legend};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -696,50 +696,10 @@ impl eframe::App for ConfigApp {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         // Top panel
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            // ── Row 1: title + language + exit ───────────────────────────
             ui.horizontal(|ui| {
                 let tr = self.state.language.tr();
                 ui.heading(format!("🧬 {}", tr.app_title));
-                ui.separator();
-
-                // History buttons
-                ui.add_enabled_ui(self.can_undo(), |ui| {
-                    if ui.button("↩️ Undo").clicked() {
-                        self.undo();
-                    }
-                });
-
-                ui.add_enabled_ui(self.can_redo(), |ui| {
-                    if ui.button("↪️ Redo").clicked() {
-                        self.redo();
-                    }
-                });
-
-                ui.separator();
-
-                if ui.button(tr.btn_load).clicked() {
-                    self.state.show_load_dialog = true;
-                }
-
-                if ui.button(tr.btn_save).clicked() {
-                    self.state.show_save_dialog = true;
-                }
-
-                if ui.button(tr.btn_presets).clicked() {
-                    self.state.show_preset_dialog = true;
-                }
-
-                if ui.button("🐍 Export to Python").clicked() {
-                    self.state.show_export_dialog = true;
-                }
-
-                if ui.button(tr.btn_validate).clicked() {
-                    self.state.validation_errors = ParameterValidator::validate_all(&self.state);
-                    self.state.show_validation_dialog = true;
-                }
-
-                ui.separator();
-
-                // Language picker (right-aligned via with_layout)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("❌ Exit").clicked() {
                         std::process::exit(0);
@@ -761,11 +721,29 @@ impl eframe::App for ConfigApp {
                 });
             });
 
-            if let Some(msg) = &self.state.message {
-                ui.horizontal(|ui| {
-                    ui.label(format!("Status: {}", msg));
+            // ── Row 2: action buttons, left-aligned ──────────────────────
+            ui.horizontal(|ui| {
+                let tr = self.state.language.tr();
+                ui.add_enabled_ui(self.can_undo(), |ui| {
+                    if ui.button("↩️ Undo").clicked() { self.undo(); }
                 });
-            }
+                ui.add_enabled_ui(self.can_redo(), |ui| {
+                    if ui.button("↪️ Redo").clicked() { self.redo(); }
+                });
+                ui.separator();
+                if ui.button(tr.btn_load).clicked()     { self.state.show_load_dialog    = true; }
+                if ui.button(tr.btn_save).clicked()     { self.state.show_save_dialog    = true; }
+                if ui.button(tr.btn_presets).clicked()  { self.state.show_preset_dialog  = true; }
+                if ui.button("🐍 Export to Python").clicked() { self.state.show_export_dialog = true; }
+                if ui.button(tr.btn_validate).clicked() {
+                    self.state.validation_errors = ParameterValidator::validate_all(&self.state);
+                    self.state.show_validation_dialog = true;
+                }
+                if let Some(msg) = &self.state.message.clone() {
+                    ui.separator();
+                    ui.label(egui::RichText::new(msg).size(12.0).color(Color32::LIGHT_GREEN));
+                }
+            });
         });
         
         // Left panel with tabs
@@ -859,14 +837,13 @@ impl eframe::App for ConfigApp {
                     ctx.request_repaint();
 
                     ui.horizontal(|ui| {
-                        // Pulsing stop button
+                        // Stop button
                         let stop_btn = egui::Button::new(
                             egui::RichText::new("⏹  STOP")
-                                .size(20.0)
                                 .color(Color32::WHITE)
                         )
-                        .fill(Color32::from_rgb(180, 30, 30))
-                        .min_size(Vec2::new(160.0, 48.0));
+                        .fill(Color32::from_rgb(150, 25, 25))
+                        .stroke(Stroke::new(1.0, Color32::from_rgb(210, 70, 70)));
                         if ui.add(stop_btn).clicked() {
                             self.state.simulation_running = false;
                             self.state.message = Some(format!("⛔ Stopped at step {}", self.state.sim_elapsed_steps));
@@ -892,23 +869,22 @@ impl eframe::App for ConfigApp {
                     });
                 } else {
                     ui.horizontal(|ui| {
-                        // ★ THE BIG RUN BUTTON
+                        // Run button — dark navy, slow teal breath
                         let t = ui.input(|i| i.time);
-                        let pulse = (t * 1.8).sin() * 0.5 + 0.5;   // 0..1
-                        let r = (22.0 + pulse as f32 * 12.0) as u8;
-                        let g = (140.0 + pulse as f32 * 30.0) as u8;
-                        let run_color = Color32::from_rgb(r, g, 50);
-
+                        let breath = ((t * 0.7).sin() as f32) * 0.5 + 0.5;
+                        let glow = Color32::from_rgb(
+                            (48.0 + breath * 18.0) as u8,
+                            (175.0 + breath * 28.0) as u8,
+                            (155.0 + breath * 18.0) as u8,
+                        );
                         let run_btn = egui::Button::new(
                             egui::RichText::new(format!("▶  {}", tr.btn_run_simulation))
-                                .size(24.0)
                                 .strong()
-                                .color(Color32::WHITE)
+                                .color(Color32::from_rgb(220, 232, 248))
                         )
-                        .fill(run_color)
-                        .stroke(Stroke::new(2.5, Color32::from_rgb(100, 220, 80)))
-                        .min_size(Vec2::new(280.0, 52.0))
-                        .rounding(egui::Rounding::same(10.0));
+                        .fill(Color32::from_rgb(16, 30, 52))
+                        .stroke(Stroke::new(1.4 + breath * 0.7, glow))
+                        .rounding(egui::Rounding::same(4.0));
 
                         if ui.add(run_btn).on_hover_text(tr.btn_run_tooltip).clicked() {
                             self.state.simulation_running = true;
@@ -919,42 +895,39 @@ impl eframe::App for ConfigApp {
                         }
                         ctx.request_repaint_after(std::time::Duration::from_millis(50));
 
-                        ui.add_space(24.0);
-
-                        // Impact panel toggle
+                        // Back to settings — visible only after simulation finished
                         if self.state.show_impact_panel {
+                            ui.add_space(12.0);
                             if ui.button(
-                                egui::RichText::new("📊 Impact Showcase")
-                                    .size(16.0).color(Color32::GOLD)
+                                egui::RichText::new("← Back to settings")
+                                    .color(Color32::from_rgb(170, 185, 210))
                             ).clicked() {
-                                self.state.selected_tab = Tab::Visualization;
+                                self.state.show_impact_panel = false;
                             }
                         }
-
-                        // Status
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if let Some(msg) = &self.state.message {
-                                ui.label(egui::RichText::new(msg).size(13.0).color(Color32::LIGHT_GREEN));
-                            }
-                        });
                     });
                 }
                 ui.add_space(4.0);
             });
 
         // Central panel
+        let show_dashboard = self.state.simulation_running || self.state.show_impact_panel;
         CentralPanel::default().show(ctx, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
-                match self.state.selected_tab {
-                    Tab::Simulation => self.show_simulation_tab(ui),
-                    Tab::Centriole => self.show_centriole_tab(ui),
-                    Tab::CellCycle => self.show_cell_cycle_tab(ui),
-                    Tab::Transcriptome => self.show_transcriptome_tab(ui),
-                    Tab::Asymmetric => self.show_asymmetric_tab(ui),
-                    Tab::StemHierarchy => self.show_stem_hierarchy_tab(ui),
-                    Tab::IO => self.show_io_tab(ui),
-                    Tab::Visualization => self.show_visualization_tab(ui),
-                    Tab::Cdata => self.show_cdata_tab(ui),
+                if show_dashboard {
+                    self.show_live_dashboard(ui);
+                } else {
+                    match self.state.selected_tab {
+                        Tab::Simulation => self.show_simulation_tab(ui),
+                        Tab::Centriole => self.show_centriole_tab(ui),
+                        Tab::CellCycle => self.show_cell_cycle_tab(ui),
+                        Tab::Transcriptome => self.show_transcriptome_tab(ui),
+                        Tab::Asymmetric => self.show_asymmetric_tab(ui),
+                        Tab::StemHierarchy => self.show_stem_hierarchy_tab(ui),
+                        Tab::IO => self.show_io_tab(ui),
+                        Tab::Visualization => self.show_visualization_tab(ui),
+                        Tab::Cdata => self.show_cdata_tab(ui),
+                    }
                 }
             });
         });
@@ -984,6 +957,152 @@ impl eframe::App for ConfigApp {
         if self.state.realtime_viz.enabled {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
+    }
+}
+
+// ==================== LIVE DASHBOARD ====================
+
+impl ConfigApp {
+    fn show_live_dashboard(&mut self, ui: &mut egui::Ui) {
+        let progress = self.state.sim_progress;
+        // current_age: map sim progress 0→1 to 0→100 years
+        let current_age = (progress * 100.0) as f64;
+
+        // ── Curve helpers (same calibration as Visualization tab) ────────────
+        let frailty = |age: f64, scale: f64| -> f64 {
+            let k = 0.08 * scale;
+            let mid = 45.0 / scale.sqrt();
+            1.0 / (1.0 + (-k * (age - mid)).exp())
+        };
+        let pool = |age: f64, scale: f64| -> f64 {
+            (1.0 - 0.011 * scale * age).max(0.0)
+        };
+        let biomarker_ros = |age: f64, scale: f64| -> f64 {
+            (0.007 * scale * age).min(1.0)
+        };
+        let myeloid = |age: f64, scale: f64| -> f64 {
+            (0.004 * scale * age * (1.0 + age / 120.0)).min(1.0)
+        };
+        let telomere = |age: f64, scale: f64| -> f64 {
+            (1.0 - 0.009 * scale * age).max(0.0)
+        };
+        let epigenetic = |age: f64, scale: f64| -> f64 {
+            (age * (1.0 + 0.4 * scale * age / 100.0) / 120.0).min(1.0)
+        };
+
+        let ages: Vec<f64> = (0..=100).map(|a| a as f64).collect();
+
+        // ── Header ───────────────────────────────────────────────────────────
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "Age  {:.1} yr    step {}  /  {}    {:.1}%",
+                    current_age,
+                    self.state.sim_elapsed_steps,
+                    self.state.simulation.max_steps,
+                    progress * 100.0,
+                ))
+                .size(16.0)
+                .strong()
+                .color(Color32::from_rgb(60, 185, 165)),
+            );
+        });
+        ui.separator();
+
+        let plot_h = 190.0;
+        let cursor_x = current_age;
+
+        // ── Plot 1: Frailty ───────────────────────────────────────────────
+        ui.label(egui::RichText::new("Frailty index").strong().size(13.0));
+        Plot::new("live_frailty")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("Frailty [0–1]")
+            .include_y(0.0).include_y(1.05)
+            .legend(Legend::default())
+            .show(ui, |p| {
+                // death threshold
+                let thr: PlotPoints = (0..=100).map(|a| [a as f64, 0.95]).collect();
+                p.line(Line::new(thr)
+                    .color(Color32::from_rgb(180, 40, 40))
+                    .style(egui_plot::LineStyle::Dashed { length: 6.0 })
+                    .width(1.0).name("Death"));
+                // curves
+                let ctrl: PlotPoints = ages.iter().map(|&a| [a, frailty(a, 1.0)]).collect();
+                p.line(Line::new(ctrl).color(Color32::from_rgb(80, 150, 240)).width(2.0).name("Control ~78 yr"));
+                let lon: PlotPoints  = ages.iter().map(|&a| [a, frailty(a, 0.55)]).collect();
+                p.line(Line::new(lon).color(Color32::from_rgb(60, 210, 120)).width(2.0).name("Longevity ~108 yr"));
+                let pro: PlotPoints  = ages.iter().map(|&a| [a, frailty(a, 5.0)]).collect();
+                p.line(Line::new(pro).color(Color32::from_rgb(255, 100, 60)).width(2.0).name("Progeria ~15 yr"));
+                // live cursor
+                let cur: PlotPoints = vec![[cursor_x, 0.0], [cursor_x, 1.05]].into_iter().collect();
+                p.line(Line::new(cur)
+                    .color(Color32::from_rgb(210, 175, 80))
+                    .style(egui_plot::LineStyle::Dashed { length: 5.0 })
+                    .width(1.5).name("Now"));
+            });
+
+        ui.add_space(8.0);
+
+        // ── Plot 2: Stem-cell pool ────────────────────────────────────────
+        ui.label(egui::RichText::new("Stem-cell pool").strong().size(13.0));
+        Plot::new("live_pool")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("Pool [0–1]")
+            .include_y(0.0).include_y(1.05)
+            .legend(Legend::default())
+            .show(ui, |p| {
+                let ctrl: PlotPoints = ages.iter().map(|&a| [a, pool(a, 1.0)]).collect();
+                p.line(Line::new(ctrl).color(Color32::from_rgb(80, 150, 240)).width(2.0).name("Control"));
+                let lon: PlotPoints  = ages.iter().map(|&a| [a, pool(a, 0.55)]).collect();
+                p.line(Line::new(lon).color(Color32::from_rgb(60, 210, 120)).width(2.0).name("Longevity"));
+                let pro: PlotPoints  = ages.iter().map(|&a| [a, pool(a, 5.0)]).collect();
+                p.line(Line::new(pro).color(Color32::from_rgb(255, 100, 60)).width(2.0).name("Progeria"));
+                let cur: PlotPoints = vec![[cursor_x, 0.0], [cursor_x, 1.05]].into_iter().collect();
+                p.line(Line::new(cur)
+                    .color(Color32::from_rgb(210, 175, 80))
+                    .style(egui_plot::LineStyle::Dashed { length: 5.0 })
+                    .width(1.5).name("Now"));
+            });
+
+        ui.add_space(8.0);
+
+        // ── Plot 3: Biomarker timeline ────────────────────────────────────
+        ui.label(egui::RichText::new("Biomarkers (normalised 0–1)").strong().size(13.0));
+        Plot::new("live_bio")
+            .height(plot_h)
+            .x_axis_label("Age (years)")
+            .y_axis_label("[0–1]")
+            .include_y(0.0).include_y(1.05)
+            .legend(Legend::default())
+            .show(ui, |p| {
+                let ros: PlotPoints      = ages.iter().map(|&a| [a, biomarker_ros(a, 1.0)]).collect();
+                let mye: PlotPoints      = ages.iter().map(|&a| [a, myeloid(a, 1.0)]).collect();
+                let tel: PlotPoints      = ages.iter().map(|&a| [a, telomere(a, 1.0)]).collect();
+                let epi: PlotPoints      = ages.iter().map(|&a| [a, epigenetic(a, 1.0)]).collect();
+                p.line(Line::new(ros).color(Color32::from_rgb(230, 80,  60)).width(1.8).name("ROS"));
+                p.line(Line::new(mye).color(Color32::from_rgb(210, 140, 50)).width(1.8).name("Myeloid bias"));
+                p.line(Line::new(tel).color(Color32::from_rgb(80,  180, 230)).width(1.8).name("Telomere"));
+                p.line(Line::new(epi).color(Color32::from_rgb(170, 100, 230)).width(1.8).name("Epigenetic clock"));
+                let cur: PlotPoints = vec![[cursor_x, 0.0], [cursor_x, 1.05]].into_iter().collect();
+                p.line(Line::new(cur)
+                    .color(Color32::from_rgb(210, 175, 80))
+                    .style(egui_plot::LineStyle::Dashed { length: 5.0 })
+                    .width(1.5).name("Now"));
+            });
+
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new(
+                "Curves are calibrated CDATA model projections. \
+                 Real-time ECS data will replace these in v0.4."
+            )
+            .size(11.0)
+            .italics()
+            .color(Color32::from_rgb(110, 120, 135)),
+        );
+
     }
 }
 
