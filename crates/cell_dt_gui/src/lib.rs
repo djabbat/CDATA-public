@@ -967,7 +967,12 @@ impl eframe::App for ConfigApp {
                 self.state.show_impact_panel  = true;
                 let tr = self.state.language.tr();
                 let steps = self.state.sim_elapsed_steps;
-                self.state.message = Some(format!("✅ {} — {} steps", tr.sim_complete, steps));
+                // P67-GUI: auto-export snapshots to CSV
+                let csv_path = self.save_simulation_csv();
+                self.state.message = Some(match csv_path {
+                    Ok(p)  => format!("✅ {} — {} steps | CSV: {}", tr.sim_complete, steps, p),
+                    Err(_) => format!("✅ {} — {} steps", tr.sim_complete, steps),
+                });
                 self.sim_rx = None;
             }
         }
@@ -2845,6 +2850,35 @@ impl ConfigApp {
         if !open {
             self.state.show_validation_dialog = false;
         }
+    }
+
+    /// P67-GUI: сохранить sim_snapshots в CSV после завершения симуляции.
+    /// Путь: <output_dir>/simulation_results_<timestamp>.csv
+    fn save_simulation_csv(&self) -> Result<String, std::io::Error> {
+        if self.sim_snapshots.is_empty() {
+            return Ok("(no data)".to_string());
+        }
+        let output_dir = &self.state.simulation.output_dir;
+        std::fs::create_dir_all(output_dir)?;
+
+        // Simple timestamp from step count to avoid chrono dependency
+        let fname = format!("simulation_results_{}_steps.csv", self.state.sim_elapsed_steps);
+        let path = PathBuf::from(output_dir).join(&fname);
+
+        let mut csv = String::from(
+            "step,age_years,frailty,stem_cell_pool,ros_level,myeloid_bias,\
+             telomere_length,methylation_age,is_alive\n"
+        );
+        for s in &self.sim_snapshots {
+            csv.push_str(&format!(
+                "{},{:.4},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{}\n",
+                s.step, s.age_years, s.frailty, s.stem_cell_pool,
+                s.ros_level, s.myeloid_bias, s.telomere_length,
+                s.methylation_age, s.is_alive,
+            ));
+        }
+        std::fs::write(&path, csv)?;
+        Ok(path.to_string_lossy().into_owned())
     }
 }
 

@@ -53,6 +53,9 @@ use cell_dt_core::{
         TrackABCrossState,
         TrackABCrossParams,
         update_track_ab_cross,
+        CytoplasmQCState,
+        CytoplasmQCParams,
+        update_cytoplasm_qc,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -962,6 +965,8 @@ impl SimulationModule for HumanDevelopmentModule {
                 world.insert_one(entity, SenescenceAccumulationState::default())?;
                 // P66: TrackAB cross-feedback
                 world.insert_one(entity, TrackABCrossState::default())?;
+                // P69: CytoplasmQC — контроль качества цитоплазмы при делении
+                world.insert_one(entity, CytoplasmQCState::default())?;
                 // Убираем маркер: сущность теперь полноценная ниша
                 let _ = world.remove::<(NeedsHumanDevInit,)>(entity);
                 trace!("HumanDev lazy-init: NichePool replacement initialized as {:?} HSC (clone {})", tissue, clone_id);
@@ -1041,12 +1046,19 @@ impl SimulationModule for HumanDevelopmentModule {
             // Трек E: митохондриальный ROS-буст (лаг 1 шаг, аналогично inflammaging)
             // Параметр ros_production_boost = 0.20 (масштаб по умолчанию)
             let mito_ros_boost = mito_opt.map_or(0.0, |m| m.ros_boost(0.20));
-            // Митохондриальный щит: снижает эффективный кислородный уровень у центросомы
-            // mito_shield_contribution < 1.0 → O₂ проникает активнее → больше отщеплений
-            // P9: pericentriolar_density добавляет пространственный барьер диффузии O₂ (max +15%)
-            // Применяется к base_detach_probability через масштабирование (лаг 1 шаг)
+            // Митохондриальный щит: снижает эффективный кислородный уровень у центросомы.
+            // mito_shield_contribution < 1.0 → O₂ проникает активнее → больше отщеплений.
+            //
+            // P70: Пространственный O₂-щит — перицентриолярный кластер создаёт
+            // мультипликативный барьер диффузии (физически точнее аддитивного):
+            //   spatial_barrier = 1 + pericentriolar_density × 0.25
+            //   effective_shield = mito_shield × spatial_barrier  (clamp ≤ 1.0)
+            // При высокой плотности митохондрий вокруг центросомы O₂-градиент
+            // становится круче → индукторы защищены лучше, чем предсказывает
+            // скалярный mito_shield.
             let mito_shield = mito_opt.map_or(1.0, |m| {
-                (m.mito_shield_contribution + m.pericentriolar_density * 0.15).clamp(0.0, 1.0)
+                let spatial_barrier = 1.0 + m.pericentriolar_density * 0.25;
+                (m.mito_shield_contribution * spatial_barrier).clamp(0.0, 1.0)
             });
             // Вклад эпигенетических часов в ROS (лаг 1 шаг, аналогично inflammaging)
             let epi_ros_from_prev = epigenetic_opt.as_ref().map_or(0.0, |e| e.epi_ros_contribution);
@@ -2016,6 +2028,32 @@ impl SimulationModule for HumanDevelopmentModule {
             }
         }
 
+        // P69: Обновить CytoplasmQCState — контроль качества цитоплазмы при делении.
+        // stem_daughter_purity снижает эффективную регенерацию ниши при низком QC.
+        {
+            for (_, (dev, qc)) in world.query_mut::<(
+                &mut HumanDevelopmentComponent,
+                &mut CytoplasmQCState,
+            )>() {
+                if !dev.is_alive { continue; }
+                let params = CytoplasmQCParams::default();
+                let dam = &dev.centriolar_damage;
+                update_cytoplasm_qc(
+                    qc,
+                    &params,
+                    dam.total_damage_score(),
+                    dam.protein_aggregates,
+                    dev.age_years() as f32,
+                    1.0,
+                );
+                // Обратная связь: низкий QC → ухудшение регенерации ниши
+                // stem_daughter_purity < 1.0 означает загрязнение дочерней клетки
+                let qc_penalty = (1.0 - qc.stem_daughter_purity) * 0.15;
+                dev.tissue_state.regeneration_tempo =
+                    (dev.tissue_state.regeneration_tempo * (1.0 - qc_penalty)).max(0.01);
+            }
+        }
+
         // Шаг 2: синхронизировать отдельный ECS-компонент CentriolarDamageState
         // чтобы stem_cell_hierarchy и asymmetric_division могли читать повреждения
         // без зависимости от human_development_module.
@@ -2261,6 +2299,8 @@ impl SimulationModule for HumanDevelopmentModule {
             world.insert_one(entity, SenescenceAccumulationState::default())?;
             // P66: TrackAB cross-feedback — перекрёстная обратная связь Track A ↔ Track B.
             world.insert_one(entity, TrackABCrossState::default())?;
+            // P69: CytoplasmQC — контроль качества цитоплазмы при делении.
+            world.insert_one(entity, CytoplasmQCState::default())?;
             world.insert_one(entity, comp)?;
         }
 
