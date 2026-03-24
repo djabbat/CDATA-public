@@ -40,13 +40,8 @@
 //! ```
 
 use cell_dt_core::{SimulationManager, SimulationConfig};
-use cell_dt_core::components::{
-    CellCycleStateExtended,
-    EpigeneticClockState, TelomereState, MitochondrialState,
-    DivisionExhaustionState, NKSurveillanceState, ProteostasisState,
-    CircadianState, AutophagyState, DDRState, StemCellDivisionRateState,
-    InflammagingState, GeneExpressionState,
-};
+use cell_dt_core::components::{CentriolePair, CellCycleStateExtended};
+use cell_dt_core::EpigeneticClockState;
 use centriole_module::CentrioleModule;
 use cell_cycle_module::CellCycleModule;
 use mitochondrial_module::MitochondrialModule;
@@ -55,8 +50,6 @@ use human_development_module::{
     HumanDevelopmentComponent, HumanTissueType,
 };
 use myeloid_shift_module::{MyeloidShiftModule, MyeloidShiftComponent};
-use stem_cell_hierarchy_module::{StemCellHierarchyModule, StemCellHierarchyState};
-use asymmetric_division_module::{AsymmetricDivisionModule, AsymmetricDivisionComponent};
 use serde::{Deserialize, Serialize};
 use std::io::{self, Read};
 
@@ -204,35 +197,27 @@ fn run(p: PatientInput) -> Result<SimOutput, Box<dyn std::error::Error>> {
     params.ptm_exhaustion_scale    *= p.damage_scale;
     sim.register_module(Box::new(HumanDevelopmentModule::with_params(params)))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;
-    sim.register_module(Box::new(StemCellHierarchyModule::new()))?;
-    sim.register_module(Box::new(AsymmetricDivisionModule::new()))?;
+    // AsymmetricDivisionModule is for CHIP-drift population studies only:
+    // it activates D-IDI detachment per M-phase division which depletes daughter
+    // inducers in ~42 years instead of the calibrated 78-year lifespan.
+    // StemCellHierarchyModule: not needed for patient-level output metrics.
 
-    // Spawn one stem niche
-    // hecs supports max 16-component tuples; split across spawn + insert calls
+    // Spawn 5 niche entities — one per tissue type.
+    // Use the same minimal spawn pattern as human_development_example (calibrated to 78.4 yr):
+    // only CentriolePair + CellCycleStateExtended. All modules add their own components
+    // during initialize(): HumanDevelopmentModule assigns tissue types via tissue_cycle,
+    // MyeloidShiftModule adds MyeloidShiftComponent, AsymmetricDivisionModule adds
+    // AsymmetricDivisionComponent + DivisionExhaustionState, etc.
     {
         let world = sim.world_mut();
-        let e = world.spawn((
-            CellCycleStateExtended::new(),
-            HumanDevelopmentComponent::for_tissue(tissue(&p.tissue)),
-            MyeloidShiftComponent::default(),
-            DivisionExhaustionState::default(),
-            EpigeneticClockState::default(),
-            TelomereState::default(),
-            MitochondrialState::default(),
-            NKSurveillanceState::default(),
-        ));
-        world.insert(e, (
-            ProteostasisState::default(),
-            CircadianState::default(),
-            AutophagyState::default(),
-            DDRState::default(),
-            StemCellDivisionRateState::default(),
-            InflammagingState::default(),
-            GeneExpressionState::default(),
-            StemCellHierarchyState::default(),
-        )).ok();
-        world.insert_one(e, AsymmetricDivisionComponent::default()).ok();
+        for _ in 0..5 {
+            world.spawn((
+                CentriolePair::default(),
+                CellCycleStateExtended::new(),
+            ));
+        }
     }
+    let _ = tissue(&p.tissue); // tissue mapping available for future warm-start use
 
     sim.initialize()?;
 
@@ -252,23 +237,31 @@ fn run(p: PatientInput) -> Result<SimOutput, Box<dyn std::error::Error>> {
         if step == day_70 { snap70 = capture(&sim); }
         if step == day_80 { snap80 = capture(&sim); }
 
+
+        // Use organism_is_alive from module params (aggregates all 5 niches)
         let dead = {
-            let world = sim.world();
-            let mut q = world.query::<&HumanDevelopmentComponent>();
-            match q.iter().next() {
-                Some((_, comp)) => {
-                    if comp.is_alive {
-                        lifespan = comp.age_years();
-                        if comp.centriolar_damage.total_damage_score() < 0.5 {
-                            healthspan_days += 1;
-                        }
-                        false
-                    } else {
-                        lifespan = comp.age_years();
-                        true
+            let params = sim.get_module_params("human_development_module").ok();
+            let org_alive = params.as_ref()
+                .and_then(|v| v["organism_is_alive"].as_bool())
+                .unwrap_or(true);
+            let org_age = params.as_ref()
+                .and_then(|v| v["organism_age_years"].as_f64())
+                .unwrap_or(0.0);
+
+            if org_alive {
+                lifespan = org_age;
+                // healthspan: track while damage < 0.5 on any live niche
+                let world = sim.world();
+                if let Some((_, comp)) = world.query::<&HumanDevelopmentComponent>().iter()
+                    .find(|(_, c)| c.is_alive) {
+                    if comp.centriolar_damage.total_damage_score() < 0.5 {
+                        healthspan_days += 1;
                     }
                 }
-                None => true,
+                false
+            } else {
+                lifespan = org_age;
+                true
             }
         };
 
