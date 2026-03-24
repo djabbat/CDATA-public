@@ -2,6 +2,16 @@
 name = "cell_dt_core"
 version = "0.1.0"
 edition = "2021"
+authors.workspace = true
+license.workspace = true
+description = "Core ECS engine and biological components for the Cell Digital Twin (CDATA) aging simulator"
+repository = "https://github.com/djabbat/CDATA"
+homepage = "https://github.com/djabbat/CDATA"
+documentation = "https://docs.rs/cell_dt_core"
+readme = "README.md"
+keywords = ["aging", "simulation", "stem-cell", "biology", "ecs"]
+categories = ["science", "simulation"]
+exclude = ["tests/", "benches/"]
 
 [dependencies]
 hecs.workspace = true
