@@ -11,6 +11,9 @@ cell_cycle_module = { path = "../cell_dt_modules/cell_cycle_module" }
 transcriptome_module = { path = "../cell_dt_modules/transcriptome_module" }
 asymmetric_division_module = { path = "../cell_dt_modules/asymmetric_division_module" }
 stem_cell_hierarchy_module = { path = "../cell_dt_modules/stem_cell_hierarchy_module" }
+human_development_module = { path = "../cell_dt_modules/human_development_module" }
+myeloid_shift_module = { path = "../cell_dt_modules/myeloid_shift_module" }
+mitochondrial_module = { path = "../cell_dt_modules/mitochondrial_module" }
 eframe = "0.24"
 egui = "0.24"
 egui_extras = "0.24"

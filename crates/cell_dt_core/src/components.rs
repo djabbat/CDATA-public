@@ -3157,18 +3157,34 @@ pub struct StemCellDivisionRateState {
     /// `decline_index = 1.0 - division_rate`
     /// 0 = нет снижения; 1 = деления полностью прекратились.
     pub decline_index: f32,
+
+    // --- Калибровочные коэффициенты (configurable via set_module_params) ---
+    /// Нижняя граница age_factor (минимальный темп деления у очень пожилых) [0..1].
+    /// По умолчанию: 0.15. Управляет ползунком `division_rate_floor` в GUI.
+    pub age_factor_floor: f32,
+
+    /// Коэффициент торможения ROS: `ros_brake = 1.0 - ros_level × ros_brake_strength`.
+    /// По умолчанию: 0.40 (калибровано по Passos et al. 2010; SA: Δdiv ≈ ±18% при ±50%).
+    pub ros_brake_strength: f32,
+
+    /// Коэффициент торможения mTOR: `mtor_brake = 1.0 - (mtor-0.3).max(0) × mtor_brake_strength`.
+    /// По умолчанию: 0.35 (Harrison et al. 2009 — rapamycin +28% lifespan → ~0.35 эффект).
+    pub mtor_brake_strength: f32,
 }
 
 impl Default for StemCellDivisionRateState {
     fn default() -> Self {
         Self {
-            division_rate:  1.0,
-            cilia_drive:    1.0,
-            spindle_drive:  1.0,
-            age_factor:     1.0,
-            ros_brake:      1.0,
-            mtor_brake:     1.0,
-            decline_index:  0.0,
+            division_rate:     1.0,
+            cilia_drive:       1.0,
+            spindle_drive:     1.0,
+            age_factor:        1.0,
+            ros_brake:         1.0,
+            mtor_brake:        1.0,
+            decline_index:     0.0,
+            age_factor_floor:  0.15,
+            ros_brake_strength: 0.40,
+            mtor_brake_strength: 0.35,
         }
     }
 }
@@ -3196,16 +3212,20 @@ impl StemCellDivisionRateState {
         // 2. Качество веретена: повреждение → более длительный G1, арест (p21↑)
         self.spindle_drive = (0.30 + spindle_fidelity * 0.70).clamp(0.0, 1.0);
 
-        // 3. Возрастной фактор: линейное снижение с 20 лет
+        // 3. Возрастной фактор: линейное снижение с 20 лет; нижняя граница = age_factor_floor
         self.age_factor = (1.0 - (age_years - 20.0).max(0.0) / 100.0)
-            .clamp(0.15, 1.0);
+            .clamp(self.age_factor_floor, 1.0);
 
         // 4. ROS-тормоз: высокий ROS → p21/p16 стабилизация → квазисенесценция
-        self.ros_brake = (1.0 - ros_level * 0.40).clamp(0.40, 1.0);
+        // Коэффициент ros_brake_strength задаётся через set_module_params (GUI ползунок).
+        // Нижний предел clamp = (1 - strength): при ros=1.0 тормоз не сильнее коэффициента.
+        let ros_floor = (1.0 - self.ros_brake_strength).max(0.0);
+        self.ros_brake = (1.0 - ros_level * self.ros_brake_strength).clamp(ros_floor, 1.0);
 
         // 5. mTOR-тормоз: повышенный mTOR перераспределяет ресурсы от пролиферации
-        // Базовый mTOR=0.3 → нет торможения; mTOR=0.8 → -17.5% к темпу
-        self.mtor_brake = (1.0 - (mtor_activity - 0.3).max(0.0) * 0.35).clamp(0.6, 1.0);
+        // Базовый mTOR=0.3 → нет торможения; mTOR=0.8 → -mtor_brake_strength×0.5 к темпу
+        // Коэффициент mtor_brake_strength задаётся через set_module_params (GUI ползунок)
+        self.mtor_brake = (1.0 - (mtor_activity - 0.3).max(0.0) * self.mtor_brake_strength).clamp(0.6, 1.0);
 
         // Интегральный темп: произведение всех компонентов
         self.division_rate = (self.cilia_drive

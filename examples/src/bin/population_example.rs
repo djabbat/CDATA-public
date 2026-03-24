@@ -164,6 +164,7 @@ fn simulate_organism(
             meiotic_elimination_enabled: true,
             noise_scale:                0.15,
             enable_inducer_system:      true,
+            ..Default::default()
         }
     )))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;

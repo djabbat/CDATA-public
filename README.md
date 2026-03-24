@@ -1028,6 +1028,31 @@ An **⚙️ Settings** collapsible inside the panel allows adding more parameter
 | `▶ Run Simulation` | Dark-navy button (`#10 1E 34`) with a slow teal breathing glow (~0.7 Hz); text color `#DC E8 F8`. Starts the simulation. |
 | `← Back to settings` | Appears only after a simulation has completed. Returns the central panel from the results dashboard to the tab view. |
 
+**Metrics bar (always visible — both rows update in real time):**
+
+Below the buttons, separated by a divider, the bottom panel shows two rows of outcome metrics.
+
+*Row 1 — Aging metrics* (gray `● est.` before run → green `● real` after run):
+
+| Metric | Description |
+|--------|-------------|
+| Lifespan | Estimated or real age at frailty = 0.95 (death threshold) |
+| Healthspan | Age at which frailty crosses 0.50 |
+| Frailty @50 | Frailty index value at age 50 |
+| Frailty @70 | Frailty index value at age 70 |
+| Pool @70 | Stem cell pool fraction remaining at age 70 |
+| ROS @50 | Reactive oxygen species level at age 50 |
+
+*Row 2 — System risks* (amber `⚕ risks·est.` → `⚕ risks·real`):
+
+| Metric | Description |
+|--------|-------------|
+| 🫀 Cardio | Estimated cardiovascular disease risk at lifespan |
+| 🧬 Cancer | Estimated lifetime cancer risk |
+| 🧠 Cognit. | Estimated cognitive / neurodegeneration risk at lifespan |
+
+Values in **orange-red** indicate a warning threshold exceeded. Full formula specification in [§ 12.8](#128-outcome-metrics-panel--formula-reference).
+
 ---
 
 ### 12.6 Central panel — tab contents
@@ -1252,17 +1277,112 @@ Updates every ~50 ms during the run.
 
 | Plot | Y-axis | Curves |
 |------|--------|--------|
-| **Frailty index** | 0 – 1 | Control (blue), Longevity (green), Progeria (orange) + gold **"Now" cursor** |
-| **Stem-cell pool** | 0 – 1 | Same three scenarios + cursor |
-| **Biomarkers** | 0 – 1 (normalised) | ROS (red), Myeloid bias (amber), Telomere length (cyan), Epigenetic clock (purple) + cursor |
+| **Frailty index** | 0 – 1 | Gray math approximation (pre-run) → white **real ECS data** line (post-run); gold dashed **"Now" cursor** |
+| **Stem-cell pool** | 0 – 1 | Same: math fallback → real `stem_cell_pool` from ECS |
+| **Biomarkers** | 0 – 1 (normalised) | ROS (red), Myeloid bias (amber), Telomere length (cyan), Epigenetic clock (purple) — math fallback → real ECS data |
 
 The **gold dashed cursor** is synchronized to `sim_progress → current age (years)` and moves right as the simulation advances.
 
-**Footer note:** *Curves are calibrated CDATA model projections. Real-time ECS data will replace these in v0.4.*
+**Real data source:** each plot curve switches from the math approximation to actual ECS aggregates once `sim_snapshots` is non-empty. The simulation thread emits ~500 `SimSnapshot` points per run (one every `max_steps / 500` steps). Each snapshot averages values across all 5 niche entities:
+- `frailty` — mean of `HumanDevelopmentComponent::frailty()`
+- `stem_cell_pool` — mean of `tissue_state.stem_cell_pool`
+- `ros_level` — mean of `CentriolarDamageState::ros_level`
+- `myeloid_bias` — mean of `MyeloidShiftComponent::myeloid_bias`
+- `telomere_length` — mean of `TelomereState::mean_length`
+- `methylation_age` — mean of `EpigeneticClockState::methylation_age`
+
+**Footer:** snapshot count is shown in the plot caption when real data is available (e.g., `Real ECS data — 500 snapshots`).
 
 ---
 
-### 12.8 Dialogs
+### 12.8 Outcome Metrics Panel — Formula Reference
+
+All 9 metrics are recomputed on every egui frame from the current GUI parameter values (estimated mode) or from the `sim_snapshots` vector (real mode). Switching between modes is automatic.
+
+---
+
+#### Shared intermediate: `damage_scale` *s*
+
+All metrics derive from a single scalar *s* that captures the combined effect of all damage-rate parameters:
+
+```
+detach  = base_detach_probability / 0.0003          (1.0 at calibrated default)
+preset  = Normal → 1.0 | Progeria → 5.0 | Longevity → 0.6
+bias    = 1.0 + (mother_bias − 0.5) × 0.8
+age_f   = 1.0 + age_bias_coefficient × 80.0
+chk     = 1.0 − checkpoint_strictness × 0.30
+
+s = max(0.05, preset × detach × bias × age_f × chk)
+```
+
+Default values (Normal preset, all other params at default) → **s = 1.0**, predicted lifespan ≈ 78 yr.
+
+---
+
+#### Per-biomarker scales
+
+```
+ps  = max(0.05, s / (0.5 + division_rate_floor × 1.5))   ← pool scale
+rs  = max(0.05, s × (2.0 − ros_brake_strength))           ← ROS scale
+ms  = max(0.05, s × (spindle_weight × 2.0 + ros_weight × 1.5))  ← myeloid scale
+```
+
+---
+
+#### Row 1 — Aging metrics
+
+| Metric | Formula (estimated) | Formula (real) | Warn threshold |
+|--------|--------------------|--------------------|----------------|
+| **Lifespan** | `45/√s + ln(19) / (0.08·s)` | age at last snapshot | < 40 yr |
+| **Healthspan** | `45/√s` | age of last snapshot with frailty < 0.5 | < 20 yr |
+| **Frailty @50** | `1 / (1 + exp(−0.08·s·(50 − 45/√s)))` | `frailty` field of snapshot nearest age 50 | > 0.80 |
+| **Frailty @70** | same sigmoid at age 70 | snapshot nearest age 70 | > 0.80 |
+| **Pool @70** | `max(0, 1 − 0.011·ps·70)` | `stem_cell_pool` at nearest age 70 | < 0.30 |
+| **ROS @50** | `min(1, 0.007·rs·50)` | `ros_level` at nearest age 50 | > 0.60 |
+
+Color: **gray** (estimated, no simulation yet) → **green** (real ECS data from completed run).
+
+---
+
+#### Row 2 — System risks
+
+Shared reference-age intermediates (evaluated at age 65):
+
+```
+ros65     = min(1, 0.007 × rs × 65)
+myeloid65 = min(1, 0.004 × ms × 65 × (1 + 65/120))
+epigen65  = min(1, 65 × (1 + 0.4 × s × 0.65) / 120)
+```
+
+| Metric | Formula (estimated) | Formula (real) | Biological basis |
+|--------|--------------------|--------------------|-----------------|
+| **🫀 Cardio** | `min(1, ros65×0.45 + myeloid65×0.40 + max(s−0.6,0)×0.08)` | `min(1, ros65×0.45 + myeloid65×0.40 + max(ros_peak−0.6,0)×0.08)` | ROS oxidises LDL → atherosclerosis; myeloid shift drives vascular SASP inflammation |
+| **🧬 Cancer** | `min(1, s × (1 − chk×0.60) × 0.30)` | `min(1, telomere_loss×0.50 + ros_peak×0.35 + (1−chk×0.60)×0.15)` | Centriolar mis-segregation → aneuploidy; ROS → point mutations; checkpoint protection |
+| **🧠 Cognit.** | `min(1, (myeloid65×0.45 + ros65×0.30 + epigen65×0.25) × 0.65)` | same with real myeloid65 / ros65 / epigen65 from snapshots | Microglial activation via myeloid shift; oxidative neurodegeneration; epigenetic clock → cortical aging |
+
+Color: **muted amber** (estimated) → **bright amber** (real). Warning values shown in **crimson**.
+
+Warning thresholds: Cardio > 55%, Cancer > 40%, Cognit. > 45%.
+
+---
+
+#### Parameter → metric sensitivity (all 9 metrics)
+
+| Parameter | Affects |
+|-----------|---------|
+| `damage_preset` | **all 9** via *s* |
+| `base_detach_probability` | **all 9** via *s* |
+| `mother_bias` | all 9 via *s* (moderate) |
+| `age_bias_coefficient` | all 9 via *s*; Cognit. additionally via epigen65 |
+| `checkpoint_strictness` | Lifespan / Frailty (−30% cap on *s*); **Cancer** (primary, −60% cap) |
+| `division_rate_floor` | **Pool @70** (primary, via *ps*); others negligible |
+| `ros_brake_strength` | **ROS @50** (primary, via *rs*); **Cardio**, Cognit. (via ros65) |
+| `spindle_weight` | **Cardio**, **Cognit.** (primary, via *ms* → myeloid65) |
+| `ros_weight` | Cardio, Cognit. (via *ms* → myeloid65) |
+
+---
+
+### 12.9 Dialogs
 
 #### Save / Load
 
@@ -1312,7 +1432,7 @@ Shows a **Close** button. All errors must be resolved before results can be cons
 
 ---
 
-### 12.9 History system (Undo / Redo)
+### 12.10 History system (Undo / Redo)
 
 - Every interactive control (slider, checkbox, combo, text field) calls `push_history()` on change.
 - History is a `VecDeque<ConfigAppState>` with a maximum of **50 states**.
@@ -1322,7 +1442,7 @@ Shows a **Close** button. All errors must be resolved before results can be cons
 
 ---
 
-### 12.10 Multilingual support
+### 12.11 Multilingual support
 
 Seven languages are available in the language picker. The UI font stack is extended at startup:
 
@@ -1337,7 +1457,7 @@ All translatable strings are defined in `crates/cell_dt_gui/src/i18n.rs` as stat
 
 ---
 
-### 12.11 Build and run
+### 12.12 Build and run
 
 ```bash
 # Development build

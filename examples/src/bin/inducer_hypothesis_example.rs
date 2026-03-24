@@ -47,6 +47,7 @@ fn run_scenario(enable_inducers: bool) -> Result<SimResult, Box<dyn std::error::
         meiotic_elimination_enabled: true,
         noise_scale:                 0.0,
         enable_inducer_system:       enable_inducers,
+        ..Default::default()
     };
 
     let mut dev_module = HumanDevelopmentModule::with_params(dev_params);

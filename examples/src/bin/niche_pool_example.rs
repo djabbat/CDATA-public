@@ -78,6 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // → смерти разбросаны по ±20 лет вокруг средней продолжительности жизни.
             noise_scale:                0.20,
             enable_inducer_system:      true,
+            ..Default::default()
         }
     )))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;

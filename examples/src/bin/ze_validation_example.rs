@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             meiotic_elimination_enabled: true,
             noise_scale:                0.0,  // без шума для воспроизводимости
             enable_inducer_system:      true,
+            ..Default::default()
         }
     )))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;

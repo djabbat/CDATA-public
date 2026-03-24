@@ -74,6 +74,7 @@ fn run_simulation(seed: u64) -> Result<RunResult, Box<dyn std::error::Error>> {
         meiotic_elimination_enabled:  true,
         noise_scale:                  NOISE_SCALE,
         enable_inducer_system:        true,
+        ..Default::default()
     };
     sim.register_module(Box::new(HumanDevelopmentModule::with_params(dev_params)))?;
 

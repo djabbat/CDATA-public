@@ -47,23 +47,6 @@ use cell_dt_core::{
         MicrotubuleState,
         GolgiState,
         GeneticProfile,
-        ATPEnergyState,
-        ChromatinState,
-        IFTState,
-        ActinRingState,
-        ERStressState,
-        LysosomeState,
-        PeroxisomeState,
-        RibosomeState,
-        ExtracellularMatrixState,
-        VascularNicheState,
-        FibrosisState,
-        HPAAxisState,
-        MetabolicPhenotypeState,
-        OrganType,
-        OrganState,
-        CloneEpigeneticState,
-        FateSwitchingState,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -287,6 +270,22 @@ pub struct HumanDevelopmentParams {
     /// `false`           — без индукторов: потентность задаётся напрямую как
     ///                     f(spindle_fidelity, ciliary_function), имитируя альтернативную гипотезу.
     pub enable_inducer_system: bool,
+
+    // --- Track F: параметры темпа деления (StemCellDivisionRateState) ---
+    /// Нижняя граница возрастного коэффициента age_factor [0..0.5].
+    /// Определяет минимальный темп деления у очень пожилых клеток.
+    /// Управляет GUI-ползунком `division_rate_floor`. По умолч.: 0.15.
+    pub division_rate_floor: f32,
+
+    /// Коэффициент ROS-торможения деления [0..1].
+    /// `ros_brake = 1.0 - ros_level × ros_brake_strength`. По умолч.: 0.40.
+    /// Управляет GUI-ползунком `ros_brake_strength`.
+    pub ros_brake_strength: f32,
+
+    /// Коэффициент mTOR-торможения деления [0..1].
+    /// `mtor_brake = 1.0 - (mtor-0.3).max(0) × mtor_brake_strength`. По умолч.: 0.35.
+    /// Управляет GUI-ползунком `mtor_brake_strength`.
+    pub mtor_brake_strength: f32,
 }
 
 impl Default for HumanDevelopmentParams {
@@ -306,6 +305,9 @@ impl Default for HumanDevelopmentParams {
             meiotic_elimination_enabled: true, // биологически корректный дефолт
             noise_scale: 0.0,           // детерминированно по умолчанию
             enable_inducer_system: true, // стандартная модель с индукторами
+            division_rate_floor:  0.15,
+            ros_brake_strength:   0.40,
+            mtor_brake_strength:  0.35,
         }
     }
 }
@@ -1819,6 +1821,10 @@ impl SimulationModule for HumanDevelopmentModule {
                 if !dev.is_alive { continue; }
                 let dam = &dev.centriolar_damage;
                 let mtor = autoph_opt.map_or(0.3, |a| a.mtor_activity);
+                // Применяем калибровочные коэффициенты из GUI перед вызовом update()
+                divrate.age_factor_floor   = self.params.division_rate_floor;
+                divrate.ros_brake_strength = self.params.ros_brake_strength;
+                divrate.mtor_brake_strength = self.params.mtor_brake_strength;
                 divrate.update(
                     dam.ciliary_function,
                     dam.spindle_fidelity,
@@ -1916,7 +1922,7 @@ impl SimulationModule for HumanDevelopmentModule {
             };
             // Фаза 2: помечаем NK-элиминированные клетки мёртвыми
             for entity in nk_kill_entities {
-                if let Ok(mut q) = world.query_one_mut::<&mut HumanDevelopmentComponent>(entity) {
+                if let Ok(q) = world.query_one_mut::<&mut HumanDevelopmentComponent>(entity) {
                     q.is_alive = false;
                     info!(
                         "NK elimination: niche {:?} at age {:.1} yr (kill_prob exceeded threshold)",
@@ -2096,6 +2102,11 @@ impl SimulationModule for HumanDevelopmentModule {
         set_dr!("midlife_transition_width",   self.damage_rates.midlife_transition_width);
         // P3: Стохастический шум
         set_dr!("noise_scale",                self.damage_rates.noise_scale);
+
+        // Track F: коэффициенты темпа деления (применяются через StemCellDivisionRateState)
+        set_f32!("division_rate_floor",  self.params.division_rate_floor);
+        set_f32!("ros_brake_strength",   self.params.ros_brake_strength);
+        set_f32!("mtor_brake_strength",  self.params.mtor_brake_strength);
 
         Ok(())
     }
