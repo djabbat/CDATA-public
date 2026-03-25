@@ -6,12 +6,17 @@ mod plot3d;
 mod heatmap;
 mod timeseries;
 mod cdata_timeseries;
+mod aging_landscape;
 
 pub use plot2d::*;
 pub use plot3d::*;
 pub use heatmap::*;
 pub use timeseries::*;
 pub use cdata_timeseries::{CdataSnapshot, CdataTimeSeriesVisualizer};
+pub use aging_landscape::{
+    AgingLandscapeVisualizer, AgingLandscapeData, LandscapeFrame,
+    TissueKind, ColorMode, SharedLandscape,
+};
 
 use cell_dt_core::{
     components::{CentriolePair, CellCycleState, Phase},

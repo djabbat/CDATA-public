@@ -412,6 +412,15 @@ impl HumanDevelopmentModule {
         }
     }
 
+    /// Задать параметры молекулярного повреждения (DamageParams).
+    ///
+    /// Используется `cdata_patient_sim` для масштабирования damage_scale
+    /// из клинических данных пациента (Ze-HRV, факторы риска).
+    pub fn set_damage_rates(&mut self, dp: DamageParams) {
+        self.damage_rates = dp;
+        self.damage_rates_dirty = true;
+    }
+
     /// P22: Задать параметры термодинамики (Аррениус, базовая температура).
     pub fn set_thermodynamic_params(&mut self, params: thermodynamics::ThermodynamicParams) {
         self.thermodynamic_params = params;

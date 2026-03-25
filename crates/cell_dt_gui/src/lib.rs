@@ -6,6 +6,7 @@ pub mod i18n;
 use i18n::Lang;
 
 use cell_dt_config::*;
+use cell_dt_viz::{AgingLandscapeVisualizer, CdataSnapshot as VizSnapshot};
 use eframe::{egui, Frame};
 use egui::{CentralPanel, Context, ScrollArea, Slider, Window, ComboBox, Color32, Stroke};
 use egui_plot::{Plot, Line, PlotPoints, Legend};
@@ -39,6 +40,55 @@ use cell_cycle_module::CellCycleModule;
 
 /// Ecosphere-level environmental conditions (+8).
 /// These initial conditions are fed into food_water_module, sleep_module, breathing_module
+/// Social determinants of aging (+4).
+/// Source: Holt-Lunstad (2015, PLOS Med) · Cacioppo & Hawkley (2010) · Marmot Review (2010).
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SocialConditions {
+    /// Loneliness index [0..1]: 0 = socially connected, 1.0 = severe isolation.
+    /// ↑ → CRP↑ → SASP↑ → myeloid_bias↑ (Cacioppo & Hawkley 2010)
+    pub loneliness_index: f32,
+    /// Social cohesion / support network [0..1]: 1.0 = strong family + community ties.
+    /// ↑ → cortisol↓ → ROS↓ → damage_scale↓ (Holt-Lunstad: HR=1.29 for isolation)
+    pub social_cohesion: f32,
+    /// Socioeconomic stress [0..1]: 0 = low stress / good SES, 1.0 = chronic poverty.
+    /// → Healthcare access, nutrition quality, chronic HPA axis activation
+    pub socioeconomic_stress: f32,
+    /// Chronic psychosocial stress [0..1]: work, relationships, life events.
+    /// → Epel et al. (2004 PNAS): psychological stress → telomere shortening
+    pub chronic_stress: f32,
+    /// Physical activity level [0..1]: 0 = sedentary, 1.0 = daily moderate exercise.
+    /// → Reduces ROS, improves mitophagy, lowers myeloid_bias
+    pub physical_activity: f32,
+    /// Purpose / meaning in life [0..1]: Ikigai index.
+    /// → Reduces allostatic load, correlates with longevity in Blue Zones
+    pub purpose_index: f32,
+}
+
+impl Default for SocialConditions {
+    fn default() -> Self {
+        Self {
+            loneliness_index:      0.25,  // modern average (mild isolation)
+            social_cohesion:       0.60,
+            socioeconomic_stress:  0.30,
+            chronic_stress:        0.35,
+            physical_activity:     0.40,
+            purpose_index:         0.55,
+        }
+    }
+}
+
+impl SocialConditions {
+    /// Compute the effective damage_scale modifier from social conditions.
+    /// Range: [0.7 .. 1.5] additive to base damage_scale.
+    pub fn damage_scale_modifier(&self) -> f32 {
+        let cortisol_boost  = self.loneliness_index * 0.15 + self.chronic_stress * 0.20;
+        let sasp_boost      = self.loneliness_index * 0.10 + self.socioeconomic_stress * 0.08;
+        let protective      = self.social_cohesion * 0.15 + self.physical_activity * 0.10
+                              + self.purpose_index * 0.08;
+        (1.0 + cortisol_boost + sasp_boost - protective).clamp(0.70, 1.50)
+    }
+}
+
 /// at simulation start and remain constant throughout (or can be updated via interventions).
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EcosphereConditions {
@@ -120,7 +170,10 @@ pub struct ConfigAppState {
     pub cdata: CdataGuiConfig,
     pub mitochondrial: MitochondrialConfig,
 
-    // Ecosphere (+8) — environmental conditions for food/water, sleep, breathing modules
+    // Society (+4) — social determinants of aging
+    pub social: SocialConditions,
+
+    // Ecosphere (+5) — environmental conditions for food/water, sleep, breathing modules
     pub ecosphere: EcosphereConditions,
 
     // Language
@@ -166,6 +219,7 @@ impl Default for ConfigAppState {
             viz: VisualizationConfig::default(),
             cdata: CdataGuiConfig::default(),
             mitochondrial: MitochondrialConfig::default(),
+            social: SocialConditions::default(),
             ecosphere: EcosphereConditions::default(),
             language: Lang::En,
             simulation_running: false,
@@ -816,6 +870,10 @@ pub struct ConfigApp {
     expanded_lineage: std::collections::HashSet<usize>,
     /// Selected niche card in Niche Browser tab
     selected_niche: Option<usize>,
+    /// Maximize window on first frame (workaround for X11)
+    initialized: bool,
+    /// 3D Aging Landscape visualizer (launched on demand)
+    landscape_viz: Option<AgingLandscapeVisualizer>,
 }
 
 impl ConfigApp {
@@ -837,6 +895,8 @@ impl ConfigApp {
                 s
             },
             selected_niche: None,
+            initialized: false,
+            landscape_viz: None,
         }
     }
 
@@ -1139,6 +1199,12 @@ impl ConfigApp {
 
 impl eframe::App for ConfigApp {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        // ── Maximize on first frame (X11 workaround) ──────────────────────
+        if !self.initialized {
+            self.initialized = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+
         // ── Poll simulation snapshots from background thread ──────────────
         {
             let mut done = false;
@@ -1281,8 +1347,8 @@ impl eframe::App for ConfigApp {
                     ( 1, Tab::Tissues,      "✅", "TissueState · ECM · VascularNicheState"),
                     ( 2, Tab::Organs,       "✅", "OrganState(11) · poly-organ failure"),
                     ( 3, Tab::Organism,     "✅", "OrganismState · HPAAxisState"),
-                    ( 4, Tab::Society,      "❌", "SocialStressInput (TODO)"),
-                    ( 5, Tab::Ecosphere,    "🟡", "Interventions · AIM integration"),
+                    ( 4, Tab::Society,      "✅", "SocialConditions · loneliness · stress · SES"),
+                    ( 5, Tab::Ecosphere,    "✅", "Interventions · AIM integration · damage_scale"),
                 ];
 
                 for &(level, tab, status, components) in levels {
@@ -1384,7 +1450,7 @@ impl eframe::App for ConfigApp {
                         // Repaint for teal-breath animation on idle button
                         ctx.request_repaint_after(std::time::Duration::from_millis(50));
 
-                        // Back to settings — visible only after simulation finished
+                        // Back to settings + Export CSV — visible only after simulation finished
                         if self.state.show_impact_panel {
                             ui.add_space(12.0);
                             if ui.button(
@@ -1392,6 +1458,21 @@ impl eframe::App for ConfigApp {
                                     .color(Color32::from_rgb(170, 185, 210))
                             ).clicked() {
                                 self.state.show_impact_panel = false;
+                            }
+                            ui.add_space(8.0);
+                            let export_btn = egui::Button::new(
+                                egui::RichText::new("💾 Export CSV")
+                                    .color(Color32::from_rgb(180, 230, 180))
+                            )
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(80, 180, 100)));
+                            if ui.add(export_btn)
+                                .on_hover_text("Save simulation results to CSV in output directory")
+                                .clicked()
+                            {
+                                match self.save_simulation_csv() {
+                                    Ok(p)  => self.state.message = Some(format!("💾 Saved: {}", p)),
+                                    Err(e) => self.state.message = Some(format!("❌ Export failed: {}", e)),
+                                }
                             }
                         }
 
@@ -2671,30 +2752,113 @@ impl ConfigApp {
     }
 
     fn show_society_tab(&mut self, ui: &mut egui::Ui) {
+        let lang = self.state.language;
+        let _ = lang;
         ui.heading("👥 Society (+4) — Social determinants of aging");
         ui.separator();
-        ui.colored_label(egui::Color32::from_rgb(200, 140, 60), "❌ Not yet implemented — planned modules:");
-        ui.add_space(4.0);
-        ui.collapsing("social_support_module (planned)", |ui| {
-            ui.label("Social support index [0..1] → cortisol↓ → ROS↓, inflammaging↓");
-            ui.label("→ Affects: ROS Level, Myeloid Bias, Frailty, Lifespan");
-            ui.label("Dataset: Holt-Lunstad et al. (2015, PLOS Medicine, N=308,849)");
-            ui.label("  Social isolation HR = 1.29 for all-cause mortality");
+
+        // ── damage_scale modifier summary ─────────────────────────────────
+        let modifier = self.state.social.damage_scale_modifier();
+        let mod_col = if modifier > 1.15 {
+            Color32::from_rgb(220, 80, 60)
+        } else if modifier < 0.90 {
+            Color32::from_rgb(80, 200, 100)
+        } else {
+            Color32::from_rgb(180, 180, 100)
+        };
+        ui.colored_label(mod_col, format!(
+            "Social damage modifier: ×{:.2}  (1.0 = neutral, <1 = protective, >1 = harmful)",
+            modifier
+        ));
+        ui.add_space(6.0);
+
+        // ── Social isolation / loneliness ──────────────────────────────────
+        ui.collapsing("😔 Loneliness & Isolation (SocialStressState)", |ui| {
+            ui.label(egui::RichText::new(
+                "↑ loneliness → CRP↑ → SASP↑ → myeloid_bias↑\n\
+                 Holt-Lunstad (2015, PLOS Med): isolation HR = 1.29 for all-cause mortality"
+            ).size(10.0).color(Color32::GRAY));
+            ui.add_space(3.0);
+            ui.horizontal(|ui| {
+                ui.label("Loneliness index:").on_hover_text("0 = well-connected, 1 = severe isolation");
+                if ui.add(egui::Slider::new(&mut self.state.social.loneliness_index, 0.0..=1.0)
+                    .step_by(0.05)).changed() { self.push_history(); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Social cohesion:").on_hover_text("Family + community support network strength");
+                if ui.add(egui::Slider::new(&mut self.state.social.social_cohesion, 0.0..=1.0)
+                    .step_by(0.05)).changed() { self.push_history(); }
+            });
         });
-        ui.collapsing("loneliness_module (planned)", |ui| {
-            ui.label("Loneliness index [0..1] → CRP↑ → SASP↑ → myeloid_bias↑");
-            ui.label("→ Affects: Myeloid Bias, Protein Aggregation, Biological Age");
-            ui.label("Dataset: Cacioppo & Hawkley (2010, Neuroscience & Biobehavioral Reviews)");
+
+        // ── Stress & SES ───────────────────────────────────────────────────
+        ui.collapsing("😰 Chronic Stress & SES (HPAAxisState modifiers)", |ui| {
+            ui.label(egui::RichText::new(
+                "Allostatic load → cortisol chronic → telomere shortening\n\
+                 Epel et al. (2004 PNAS): psychological stress → telomere shortening\n\
+                 Marmot Review (2010): SES gradient in all-cause mortality"
+            ).size(10.0).color(Color32::GRAY));
+            ui.add_space(3.0);
+            ui.horizontal(|ui| {
+                ui.label("Chronic stress:").on_hover_text("Work, relationships, life events [0..1]");
+                if ui.add(egui::Slider::new(&mut self.state.social.chronic_stress, 0.0..=1.0)
+                    .step_by(0.05)).changed() { self.push_history(); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Socioeconomic stress:").on_hover_text("0 = good SES, 1 = chronic poverty");
+                if ui.add(egui::Slider::new(&mut self.state.social.socioeconomic_stress, 0.0..=1.0)
+                    .step_by(0.05)).changed() { self.push_history(); }
+            });
         });
-        ui.collapsing("socioeconomic_module (planned)", |ui| {
-            ui.label("SES index → healthcare access → intervention availability");
-            ui.label("→ Affects: all metrics via intervention probability");
-            ui.label("Dataset: Marmot Review (2010) — SES gradient in all-cause mortality");
+
+        // ── Protective factors ─────────────────────────────────────────────
+        ui.collapsing("💪 Protective Factors (longevity correlates)", |ui| {
+            ui.label(egui::RichText::new(
+                "Blue Zones: Okinawa / Sardinia / Loma Linda — common factors:\n\
+                 daily movement, plant-based diet, ikigai (purpose), strong social ties"
+            ).size(10.0).color(Color32::GRAY));
+            ui.add_space(3.0);
+            ui.horizontal(|ui| {
+                ui.label("Physical activity:").on_hover_text(
+                    "0 = sedentary, 1 = daily moderate exercise\n→ Reduces ROS, improves mitophagy"
+                );
+                if ui.add(egui::Slider::new(&mut self.state.social.physical_activity, 0.0..=1.0)
+                    .step_by(0.05)).changed() { self.push_history(); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Purpose (Ikigai):").on_hover_text(
+                    "Meaning in life [0..1]\n→ Reduces allostatic load, Blue Zone longevity"
+                );
+                if ui.add(egui::Slider::new(&mut self.state.social.purpose_index, 0.0..=1.0)
+                    .step_by(0.05)).changed() { self.push_history(); }
+            });
         });
-        ui.collapsing("stress_module (planned)", |ui| {
-            ui.label("Allostatic load → HPA axis → cortisol chronic → telomere shortening");
-            ui.label("→ Affects: Telomere Length, Methylation Age, Division Rate");
-            ui.label("Dataset: Epel et al. (2004, PNAS) — psychological stress → telomere shortening");
+
+        // ── Presets ────────────────────────────────────────────────────────
+        ui.add_space(6.0);
+        ui.separator();
+        ui.label(egui::RichText::new("Presets:").strong());
+        ui.horizontal(|ui| {
+            if ui.button("🏝 Blue Zone").clicked() {
+                self.state.social = SocialConditions {
+                    loneliness_index: 0.05, social_cohesion: 0.95,
+                    socioeconomic_stress: 0.10, chronic_stress: 0.10,
+                    physical_activity: 0.85, purpose_index: 0.90,
+                };
+                self.push_history();
+            }
+            if ui.button("🏙 Urban Average").clicked() {
+                self.state.social = SocialConditions::default();
+                self.push_history();
+            }
+            if ui.button("😞 High Stress").clicked() {
+                self.state.social = SocialConditions {
+                    loneliness_index: 0.70, social_cohesion: 0.20,
+                    socioeconomic_stress: 0.65, chronic_stress: 0.75,
+                    physical_activity: 0.15, purpose_index: 0.20,
+                };
+                self.push_history();
+            }
         });
     }
 
@@ -2751,7 +2915,58 @@ impl ConfigApp {
             ui.label("Senolytics, NAD+, Caloric Restriction, TERT, Antioxidants");
             ui.label("CafdRetainer, CafdReleaser, CentrosomeTransplant");
             ui.label("→ See interventions.rs for implementation");
-            ui.label("AIM integration: TODO (ai_intervention_module planned)");
+        });
+
+        // ── AIM Integration panel ──────────────────────────────────────────
+        ui.add_space(6.0);
+        ui.separator();
+        ui.collapsing("🏥 AIM Clinical Integration (✅ 2026-03-25)", |ui| {
+            ui.label(egui::RichText::new(
+                "Full pipeline: AIM patient → Ze-HRV → damage_scale → CDATA simulation → prognosis"
+            ).size(10.5).color(Color32::from_rgb(100, 200, 150)));
+            ui.add_space(3.0);
+
+            // Compute combined damage_scale from social + ecosphere
+            let eco = &self.state.ecosphere;
+            let soc = &self.state.social;
+            let eco_scale = 1.0
+                + (0.5 - eco.diet_quality) * 0.30
+                + (0.5 - eco.sleep_quality) * 0.20
+                + eco.pollution_index * 0.15
+                + (eco.caloric_balance - 0.0).abs() * 0.10;
+            let social_modifier = soc.damage_scale_modifier();
+            let combined = (eco_scale * social_modifier).clamp(0.4, 5.0);
+
+            let col = if combined > 1.5 {
+                Color32::from_rgb(220, 80, 60)
+            } else if combined < 0.9 {
+                Color32::from_rgb(80, 200, 100)
+            } else {
+                Color32::from_rgb(200, 180, 80)
+            };
+            ui.colored_label(col, format!("Combined lifestyle damage_scale: ×{:.2}", combined));
+            ui.add_space(3.0);
+
+            egui::Grid::new("aim_grid").num_columns(2).spacing([6.0, 2.0]).show(ui, |ui| {
+                ui.label("Ecosphere factor:");
+                ui.label(format!("×{:.2}", eco_scale));
+                ui.end_row();
+                ui.label("Social modifier:");
+                ui.label(format!("×{:.2}", social_modifier));
+                ui.end_row();
+                ui.label("Ze-HRV (from DB):");
+                ui.label("→ read via cdata_bridge.py in AIM");
+                ui.end_row();
+                ui.label("Binary:");
+                ui.label("target/release/cdata_patient_sim ✅");
+                ui.end_row();
+            });
+
+            ui.add_space(3.0);
+            ui.label(egui::RichText::new(
+                "In AIM: medical_system.py → show_aging_prediction()\n\
+                 Reads Ze from SQLite, blends 40% clinical + 60% Ze → runs simulation"
+            ).size(9.5).color(Color32::GRAY));
         });
     }
 
@@ -3221,6 +3436,45 @@ impl ConfigApp {
                 }
                 if ui.checkbox(&mut self.state.viz.three_d_enabled, "3D visualization").changed() {
                     self.push_history();
+                }
+
+                ui.add_space(8.0);
+                ui.separator();
+                ui.label(egui::RichText::new("🌋 Model A — Aging Landscape 3D").strong().color(Color32::from_rgb(100, 220, 255)));
+                ui.label("8 tissues × 120 years — damage/frailty height map");
+                ui.add_space(4.0);
+
+                let btn_label = if self.landscape_viz.is_some() {
+                    "🔄 Reload Landscape (live data)"
+                } else {
+                    "🚀 Launch 3D Aging Landscape"
+                };
+
+                if ui.button(egui::RichText::new(btn_label).size(14.0)).clicked() {
+                    if self.sim_snapshots.is_empty() {
+                        // Demo mode: synthetic CDATA aging curves
+                        self.landscape_viz = Some(AgingLandscapeVisualizer::new_demo());
+                    } else {
+                        // Live mode: convert GUI SimSnapshots to viz CdataSnapshot
+                        let snaps: Vec<VizSnapshot> = self.sim_snapshots.iter().map(|s| VizSnapshot {
+                            step: s.step,
+                            age_years: s.age_years,
+                            mean_damage_score: s.centrosomal_damage,
+                            mean_frailty: s.frailty,
+                            mean_myeloid_bias: s.myeloid_bias,
+                            mean_spindle_fidelity: 1.0 - s.centrosomal_damage.min(1.0),
+                            alive_count: if s.is_alive { 1 } else { 0 },
+                        }).collect();
+                        if let Some(ref viz) = self.landscape_viz {
+                            viz.update_snapshots(&snaps);
+                        } else {
+                            self.landscape_viz = Some(AgingLandscapeVisualizer::from_snapshots(snaps));
+                        }
+                    }
+                }
+                if self.landscape_viz.is_some() {
+                    ui.label(egui::RichText::new("✅ Landscape window open").color(Color32::from_rgb(100, 220, 100)));
+                    ui.label("Keys: [C] color mode  [A] animate  [R] reset cam  [ESC] close");
                 }
             }
         });
@@ -4376,7 +4630,7 @@ impl ConfigApp {
     }
 
     /// P67-GUI: сохранить sim_snapshots в CSV после завершения симуляции.
-    /// Путь: <output_dir>/simulation_results_<timestamp>.csv
+    /// Путь: <output_dir>/simulation_results_<N>_steps.csv
     fn save_simulation_csv(&self) -> Result<String, std::io::Error> {
         if self.sim_snapshots.is_empty() {
             return Ok("(no data)".to_string());
@@ -4384,20 +4638,28 @@ impl ConfigApp {
         let output_dir = &self.state.simulation.output_dir;
         std::fs::create_dir_all(output_dir)?;
 
-        // Simple timestamp from step count to avoid chrono dependency
         let fname = format!("simulation_results_{}_steps.csv", self.state.sim_elapsed_steps);
         let path = PathBuf::from(output_dir).join(&fname);
 
         let mut csv = String::from(
             "step,age_years,frailty,stem_cell_pool,ros_level,myeloid_bias,\
-             telomere_length,methylation_age,is_alive\n"
+             telomere_length,methylation_age,is_alive,\
+             protein_aggregation,division_rate,\
+             div_blood,div_neural,div_connective,div_muscle,div_epithelial,div_skin,div_liver,div_lung,\
+             centrosomal_damage,biological_age\n"
         );
         for s in &self.sim_snapshots {
+            let tdr = &s.per_tissue_div_rate;
+            let fmt_f = |v: f32| if v.is_nan() { "NaN".to_string() } else { format!("{:.6}", v) };
             csv.push_str(&format!(
-                "{},{:.4},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{}\n",
+                "{},{:.4},{:.6},{:.6},{:.6},{:.6},{:.6},{:.6},{},{:.6},{:.6},{},{},{},{},{},{},{},{},{:.6},{:.6}\n",
                 s.step, s.age_years, s.frailty, s.stem_cell_pool,
                 s.ros_level, s.myeloid_bias, s.telomere_length,
                 s.methylation_age, s.is_alive,
+                s.protein_aggregation, s.division_rate,
+                fmt_f(tdr[0]), fmt_f(tdr[1]), fmt_f(tdr[2]), fmt_f(tdr[3]),
+                fmt_f(tdr[4]), fmt_f(tdr[5]), fmt_f(tdr[6]), fmt_f(tdr[7]),
+                s.centrosomal_damage, s.biological_age,
             ));
         }
         std::fs::write(&path, csv)?;

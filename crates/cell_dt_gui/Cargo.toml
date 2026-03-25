@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cell_dt_core = { path = "../cell_dt_core" }
 cell_dt_config = { path = "../cell_dt_config" }
+cell_dt_viz = { path = "../cell_dt_viz" }
 centriole_module = { path = "../cell_dt_modules/centriole_module" }
 cell_cycle_module = { path = "../cell_dt_modules/cell_cycle_module" }
 transcriptome_module = { path = "../cell_dt_modules/transcriptome_module" }

@@ -1,5 +1,14 @@
 # Cell DT — CLAUDE.md
 
+## 📌 Правило: DeepSeek для нетехнических задач
+
+**Код и симуляция (Rust) — Claude. Всё остальное — DeepSeek API.**
+Примеры: статьи, переводы, peer review, grant text, docstrings, объяснения кода.
+**Ключ:** `~/.aim_env → DEEPSEEK_API_KEY` · **Вход:** `~/Desktop/AIM/llm.py`
+**Модели:** `deepseek-chat` (быстро) · `deepseek-reasoner` (сложные рассуждения)
+
+---
+
 Rust-платформа для симуляции клеточного старения на основе теории CDATA
 (Centriolar Damage Accumulation Theory of Aging, Jaba Tkemaladze).
 

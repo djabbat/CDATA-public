@@ -68,7 +68,7 @@ fn load_fonts() -> FontDefinitions {
 fn main() -> eframe::Result<()> {
     let options = NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1200.0, 820.0])
+            .with_maximized(true)
             .with_min_inner_size([900.0, 650.0])
             .with_resizable(true)
             .with_active(true),

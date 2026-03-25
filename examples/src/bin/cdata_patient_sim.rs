@@ -48,6 +48,7 @@ use mitochondrial_module::MitochondrialModule;
 use human_development_module::{
     HumanDevelopmentModule, HumanDevelopmentParams,
     HumanDevelopmentComponent, HumanTissueType,
+    DamageParams,
 };
 use myeloid_shift_module::{MyeloidShiftModule, MyeloidShiftComponent};
 use serde::{Deserialize, Serialize};
@@ -191,11 +192,16 @@ fn run(p: PatientInput) -> Result<SimOutput, Box<dyn std::error::Error>> {
     sim.register_module(Box::new(CellCycleModule::new()))?;
     sim.register_module(Box::new(MitochondrialModule::new()))?;
 
-    let mut params = HumanDevelopmentParams::default();
-    // damage_scale adjusts detachment probability and PTM exhaustion
-    params.base_detach_probability *= p.damage_scale;
-    params.ptm_exhaustion_scale    *= p.damage_scale;
-    sim.register_module(Box::new(HumanDevelopmentModule::with_params(params)))?;
+    let mut hdm = HumanDevelopmentModule::with_params(HumanDevelopmentParams {
+        base_detach_probability: HumanDevelopmentParams::default().base_detach_probability
+            * p.damage_scale,
+        ptm_exhaustion_scale: HumanDevelopmentParams::default().ptm_exhaustion_scale
+            * p.damage_scale,
+        ..HumanDevelopmentParams::default()
+    });
+    // Scale all molecular damage rates via DamageParams::scaled()
+    hdm.set_damage_rates(DamageParams::scaled(p.damage_scale));
+    sim.register_module(Box::new(hdm))?;
     sim.register_module(Box::new(MyeloidShiftModule::new()))?;
     // AsymmetricDivisionModule is for CHIP-drift population studies only:
     // it activates D-IDI detachment per M-phase division which depletes daughter

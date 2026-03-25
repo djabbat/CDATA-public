@@ -217,6 +217,30 @@ impl DamageParams {
         p
     }
 
+    /// Масштабировать все скорости повреждения на произвольный множитель.
+    ///
+    /// Используется в `cdata_patient_sim` для отображения клинического
+    /// `damage_scale` (из Ze-HRV / факторов риска) в параметры симуляции.
+    ///
+    /// # Примеры
+    /// - `DamageParams::scaled(1.0)` == `DamageParams::default()`
+    /// - `DamageParams::scaled(5.0)` ≈ `DamageParams::progeria()`
+    /// - `DamageParams::scaled(0.6)` ≈ `DamageParams::longevity()`
+    pub fn scaled(factor: f32) -> Self {
+        let mut p = Self::default();
+        p.base_ros_damage_rate       *= factor;
+        p.acetylation_rate           *= factor;
+        p.aggregation_rate           *= factor;
+        p.phospho_dysregulation_rate *= factor;
+        p.cep164_loss_rate           *= factor;
+        p.cep89_loss_rate            *= factor;
+        p.ninein_loss_rate           *= factor;
+        p.cep170_loss_rate           *= factor;
+        // midlife_damage_multiplier: мягкое масштабирование (не более ×3)
+        p.midlife_damage_multiplier  = (p.midlife_damage_multiplier * factor.sqrt()).min(3.0);
+        p
+    }
+
     /// Вычислить возрастной множитель через логистическую функцию (P4).
     ///
     /// Заменяет ступенчатую функцию `if age > 40 { multiplier } else { 1.0 }`.
