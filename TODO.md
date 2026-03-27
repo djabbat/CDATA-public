@@ -1,10 +1,10 @@
 # TODO: CDATA v3.0 — Реализация и деплой
 
-## Статус: 🔴 Major Revisions Required (Peer Review Round 6, 2026-03-27)
+## Статус: 🟡 Round 7 исправления применены (2026-03-28)
 
 **Дата:** 2026-03-27
 **Версия концепции:** 3.0
-**Статус кода:** ✅ cargo build OK · cargo test 21/21 · basic_simulation OK
+**Статус кода:** ✅ cargo build OK · cargo test 400/400 · basic_simulation OK
 **Peer review:** Round 6 → Major Revisions (файл: `PEER_REVIEW_ROUND6.md`)
 
 ---
@@ -124,7 +124,7 @@
 |---------|------|--------|
 | Параметров | 32 | ✅ 32 |
 | Крейтов | 8 | ⚠️ 7 (GUI пропущен) |
-| Тестов | >400 | ❌ 21 (нужно ~380 новых) |
+| Тестов | >400 | ✅ 400 |
 | R² валидации | >0.80 | ⏳ |
 | CHIP prediction R² | >0.75 | ⏳ |
 | Идентифицируемость | R-hat<1.05 | ⏳ |

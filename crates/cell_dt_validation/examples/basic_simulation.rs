@@ -2,9 +2,10 @@ use cell_dt_core::{FixedParameters, TissueState, MitochondrialState, Inflammagin
 use cell_dt_mitochondrial::MitochondrialSystem;
 use cell_dt_inflammaging::InflammagingSystem;
 use cell_dt_tissue_specific::{TissueSpecificParams, TissueType};
+use cell_dt_asymmetric_division::ChipSystem;
 
 fn main() {
-    println!("=== CDATA v3.0 — Basic Simulation (Round 7 fixes) ===\n");
+    println!("=== CDATA v3.0 — Basic Simulation (Round 7: all fixes complete) ===\n");
 
     // Validate parameters before use
     let params = FixedParameters::default();
@@ -17,6 +18,8 @@ fn main() {
     let mito_sys = MitochondrialSystem::new();
     let inflamm_sys = InflammagingSystem::new();
     let hsc = TissueSpecificParams::for_tissue(TissueType::Hematopoietic);
+    // L1: CHIP system — DNMT3A/TET2 clones amplify SASP (PMID: 29507339)
+    let mut chip_sys = ChipSystem::new(42);
 
     // Telomere loss per division (kb): HSC lose ~30-50 bp/division (Lansdorp 2005)
     // Normalized: 1.0 = full young length, ~0.3 at age 80 in HSC
@@ -100,6 +103,12 @@ fn main() {
             mito.mtdna_mutations * 0.1,
         );
 
+        // === L1: CHIP → SASP amplification (Round 7 fix) ===
+        // DNMT3A/TET2 mutant clones produce excess IL-6 and TNF-α (PMID: 29507339)
+        chip_sys.update(division_rate, inflamm.sasp_level, age, dt);
+        let sasp_chip_boost = (chip_sys.sasp_amplification() - 1.0) * 0.1 * dt;
+        inflamm.sasp_level = (inflamm.sasp_level + sasp_chip_boost).min(1.0);
+
         // === M3: Circadian amplitude → repair efficiency modulation ===
         // circadian_amplitude=0.2 modulates effective repair over 24-hr cycle.
         // In annual simulation we use mean ± half-amplitude as aging penalty:
@@ -145,5 +154,5 @@ fn main() {
     println!("  M3: circadian_amplitude placeholder added");
     println!("  L2: Quiescence suppression at high centriole damage");
     println!("  L3: Fibrosis reduces regenerative_potential");
-    println!("  NOTE: L1 (CHIP→SASP) requires ChipSystem integration in main loop");
+    println!("  L1: CHIP→SASP amplification via ChipSystem (sasp_boost * 0.1/yr, dampened)");
 }

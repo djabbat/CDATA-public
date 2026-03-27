@@ -78,4 +78,195 @@ mod tests {
         assert_eq!(ds.values.len(), 5);
         assert!(ds.min_age() < ds.max_age());
     }
+
+    // ── BiomarkerDataset construction ─────────────────────────────────────────
+
+    #[test]
+    fn test_new_empty_dataset() {
+        let ds = BiomarkerDataset::new("TestBiomarker", BiomarkerType::RosLevel);
+        assert_eq!(ds.name, "TestBiomarker");
+        assert!(ds.values.is_empty());
+        assert!(ds.source_pmid.is_none());
+    }
+
+    #[test]
+    fn test_add_point_increments_values() {
+        let mut ds = BiomarkerDataset::new("Test", BiomarkerType::RosLevel);
+        ds.add_point(30.0, 0.2, 0.05, 100);
+        ds.add_point(60.0, 0.4, 0.08, 150);
+        assert_eq!(ds.values.len(), 2);
+    }
+
+    #[test]
+    fn test_add_point_stores_correct_data() {
+        let mut ds = BiomarkerDataset::new("Test", BiomarkerType::FrailtyIndex);
+        ds.add_point(40.0, 0.3, 0.06, 200);
+        let p = &ds.values[0];
+        assert!((p.age - 40.0).abs() < 1e-9);
+        assert!((p.value - 0.3).abs() < 1e-9);
+        assert!((p.std_dev - 0.06).abs() < 1e-9);
+        assert_eq!(p.n_samples, 200);
+    }
+
+    // ── max_age / min_age ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_max_age_single_point() {
+        let mut ds = BiomarkerDataset::new("Test", BiomarkerType::RosLevel);
+        ds.add_point(55.0, 0.3, 0.05, 100);
+        assert!((ds.max_age() - 55.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_min_age_single_point() {
+        let mut ds = BiomarkerDataset::new("Test", BiomarkerType::RosLevel);
+        ds.add_point(55.0, 0.3, 0.05, 100);
+        assert!((ds.min_age() - 55.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_max_age_multiple_points() {
+        let mut ds = BiomarkerDataset::new("Test", BiomarkerType::RosLevel);
+        ds.add_point(20.0, 0.1, 0.01, 50);
+        ds.add_point(60.0, 0.3, 0.05, 100);
+        ds.add_point(45.0, 0.2, 0.03, 80);
+        assert!((ds.max_age() - 60.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_min_age_multiple_points() {
+        let mut ds = BiomarkerDataset::new("Test", BiomarkerType::RosLevel);
+        ds.add_point(20.0, 0.1, 0.01, 50);
+        ds.add_point(60.0, 0.3, 0.05, 100);
+        ds.add_point(45.0, 0.2, 0.03, 80);
+        assert!((ds.min_age() - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_max_age_empty_is_neg_infinity() {
+        let ds = BiomarkerDataset::new("Empty", BiomarkerType::RosLevel);
+        assert!(ds.max_age().is_infinite() && ds.max_age() < 0.0);
+    }
+
+    #[test]
+    fn test_min_age_empty_is_pos_infinity() {
+        let ds = BiomarkerDataset::new("Empty", BiomarkerType::RosLevel);
+        assert!(ds.min_age().is_infinite() && ds.min_age() > 0.0);
+    }
+
+    // ── synthetic_chip_frequency ──────────────────────────────────────────────
+
+    #[test]
+    fn test_synthetic_chip_has_pmid() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        assert_eq!(ds.source_pmid, Some(28792876), "CHIP should cite Jaiswal 2017");
+    }
+
+    #[test]
+    fn test_synthetic_chip_ages_increasing() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        for w in ds.values.windows(2) {
+            assert!(w[1].age > w[0].age, "Ages should be strictly increasing");
+        }
+    }
+
+    #[test]
+    fn test_synthetic_chip_values_increasing_with_age() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        for w in ds.values.windows(2) {
+            assert!(w[1].value > w[0].value,
+                "CHIP frequency should increase with age: {} -> {}", w[0].value, w[1].value);
+        }
+    }
+
+    #[test]
+    fn test_synthetic_chip_values_in_range() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        for p in &ds.values {
+            assert!(p.value >= 0.0 && p.value <= 1.0,
+                "CHIP value {} out of [0,1] at age {}", p.value, p.age);
+        }
+    }
+
+    #[test]
+    fn test_synthetic_chip_calibrated_below_02_at_70() {
+        // B3 fix: at age 70 VAF should be ~0.07, not 0.20
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        let age_70 = ds.values.iter().find(|p| (p.age - 70.0).abs() < 1.0);
+        if let Some(p) = age_70 {
+            assert!(p.value < 0.15,
+                "CHIP at age 70 should be recalibrated below 0.15 (B3 fix), got {}", p.value);
+        }
+    }
+
+    #[test]
+    fn test_synthetic_chip_min_age_40() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        assert!((ds.min_age() - 40.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_synthetic_chip_max_age_80() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        assert!((ds.max_age() - 80.0).abs() < 1.0);
+    }
+
+    // ── synthetic_ros ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_synthetic_ros_has_four_points() {
+        let ds = BiomarkerDataset::synthetic_ros();
+        assert_eq!(ds.values.len(), 4);
+    }
+
+    #[test]
+    fn test_synthetic_ros_values_increasing() {
+        let ds = BiomarkerDataset::synthetic_ros();
+        for w in ds.values.windows(2) {
+            assert!(w[1].value >= w[0].value,
+                "ROS should increase with age: {} -> {}", w[0].value, w[1].value);
+        }
+    }
+
+    #[test]
+    fn test_synthetic_ros_values_in_range() {
+        let ds = BiomarkerDataset::synthetic_ros();
+        for p in &ds.values {
+            assert!(p.value >= 0.0 && p.value <= 1.0,
+                "ROS value {} out of [0,1]", p.value);
+        }
+    }
+
+    #[test]
+    fn test_synthetic_ros_min_max_age() {
+        let ds = BiomarkerDataset::synthetic_ros();
+        assert!(ds.min_age() < ds.max_age());
+        assert!((ds.min_age() - 20.0).abs() < 1.0);
+        assert!((ds.max_age() - 80.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_synthetic_ros_has_no_pmid() {
+        // Synthetic data — no PMID set
+        let ds = BiomarkerDataset::synthetic_ros();
+        assert!(ds.source_pmid.is_none());
+    }
+
+    // ── BiomarkerDataPoint ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_data_point_std_dev_non_negative() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        for p in &ds.values {
+            assert!(p.std_dev >= 0.0, "std_dev must be non-negative at age {}", p.age);
+        }
+    }
+
+    #[test]
+    fn test_data_point_n_samples_positive() {
+        let ds = BiomarkerDataset::synthetic_chip_frequency();
+        for p in &ds.values {
+            assert!(p.n_samples > 0, "n_samples must be > 0");
+        }
+    }
 }
