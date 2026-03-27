@@ -25,12 +25,14 @@ impl InflammagingSystem {
         // cGAS-STING
         state.cgas_sting_activity = (state.damps_level * self.params.cgas_sensitivity + mtdna_release * 0.5).min(1.0);
 
-        // NF-κB: dynamic activation (FIXED Round 6: was static 0.1 → SASP was always zero)
+        // NF-κB: dynamic activation
         // Activated by cGAS-STING signal, DAMPs, and SASP positive feedback loop
+        // FIX Round 7 (B2): removed spurious *0.9 coefficient; weights sum to 1.0 exactly,
+        // so clamp upper bound tightened to 0.95 (basal 0.05 + max input 0.90)
         let nfkb_input = state.cgas_sting_activity * 0.6
             + state.sasp_level * 0.3
             + state.damps_level * 0.1;
-        state.nfkb_activity = (0.05 + nfkb_input * 0.9).clamp(0.05, 1.0);
+        state.nfkb_activity = (0.05 + nfkb_input).clamp(0.05, 0.95);
 
         // SASP production: requires cGAS-STING × NF-κB × senescent cell burden
         let sasp_prod = state.cgas_sting_activity * state.nfkb_activity * state.senescent_cell_fraction;

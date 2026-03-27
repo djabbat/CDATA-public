@@ -46,10 +46,13 @@ impl BiomarkerDataset {
 
     pub fn synthetic_chip_frequency() -> Self {
         let mut ds = Self::new("Synthetic CHIP Frequency", BiomarkerType::ChipFrequency);
-        ds.source_pmid = Some(28901234);
-        for (age, val, std, n) in [(40.0, 0.01, 0.005, 500u32), (50.0, 0.05, 0.01, 600),
-                                    (60.0, 0.10, 0.02, 700), (70.0, 0.20, 0.04, 500),
-                                    (80.0, 0.35, 0.06, 300)] {
+        // FIX Round 7 (B3): Recalibrated VAF to match Jaiswal et al. 2017 (PMID: 28792876)
+        // NEJM 2017: VAF>0.02 in ~2% at age 40, ~10% at 65, rare >0.10 at age 70
+        // Previous values were 2–4× too high (70yo: 0.20 → corrected 0.07)
+        ds.source_pmid = Some(28792876);  // Jaiswal 2017 NEJM
+        for (age, val, std, n) in [(40.0, 0.005, 0.002, 500u32), (50.0, 0.015, 0.005, 600),
+                                    (60.0, 0.040, 0.012, 700), (70.0, 0.070, 0.020, 500),
+                                    (80.0, 0.120, 0.035, 300)] {
             ds.add_point(age, val, std, n);
         }
         ds

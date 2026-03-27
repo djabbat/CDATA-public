@@ -15,7 +15,7 @@ impl Default for InflammagingParams {
             damps_rate: 0.05,
             cgas_sensitivity: 0.8,
             sasp_decay: 0.1,
-            nk_age_decay: 0.005,
+            nk_age_decay: 0.010,  // FIX Round 7 (B4): 0.005→0.010; ~50% NK decline by age 70 per PMID: 12803352
             fibrosis_rate: 0.02,
         }
     }

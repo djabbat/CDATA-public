@@ -123,10 +123,12 @@ cargo test --workspace
 ### Run Simulations
 
 ```bash
-# Launch GUI application
-cargo run --release -p cell_dt_gui
+# Launch Web GUI (Streamlit — works without display)
+# Requires: pip install streamlit matplotlib
+streamlit run cdata_gui.py --server.port 8502
+# Then open http://localhost:8502
 
-# Run basic CLI simulation
+# Run basic CLI simulation (Round 7: telomere, epigenetic clock, quiescence)
 cargo run --release --example basic_simulation
 
 # Compare interventions
