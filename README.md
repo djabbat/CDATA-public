@@ -287,35 +287,19 @@ CentrosomeTransplant  | 94.1 ± 1.8       | +15.9
 1. **Tkemaladze J.** (2023).Reduction, proliferation, and differentiation defects of stem cells over time: a consequence of selective accumulation of old centrioles in the stem cells? *Molecular Biology Reports*, 50(2): 1234-1245.  
    PMID: [36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)
 
-2. **CDATA Simulation Results** (2026). *Zenodo*.  
-   DOI: [10.5281/zenodo.19174506](https://doi.org/10.5281/zenodo.19174506)
-
 ### Validation References
 
-3. **Jaiswal S., et al.** (2017). Clonal hematopoiesis and risk of hematologic malignancies. *New England Journal of Medicine*, 377(2): 111-121.  
+2. **Jaiswal S., et al.** (2017). Clonal hematopoiesis and risk of hematologic malignancies. *New England Journal of Medicine*, 377(2): 111-121.  
    PMID: [28901234](https://pubmed.ncbi.nlm.nih.gov/28901234/)
 
-4. **Horvath S.** (2013). DNA methylation age of human tissues and cell types. *Genome Biology*, 14(10): R115.  
+. **Horvath S.** (2013). DNA methylation age of human tissues and cell types. *Genome Biology*, 14(10): R115.  
    PMID: [24138928](https://pubmed.ncbi.nlm.nih.gov/24138928/)
 
-5. **Goodell M.A., Rando T.A.** (2020). Stem cell aging. *Cell*, 180(5): 833-847.  
+4. **Goodell M.A., Rando T.A.** (2020). Stem cell aging. *Cell*, 180(5): 833-847.  
    PMID: [32123456](https://pubmed.ncbi.nlm.nih.gov/32123456/)
 
-6. **Lopez-Otin C., et al.** (2023). Hallmarks of aging: An expanding universe. *Cell*, 186(2): 243-278.  
+5. **Lopez-Otin C., et al.** (2023). Hallmarks of aging: An expanding universe. *Cell*, 186(2): 243-278.  
    PMID: [36708707](https://pubmed.ncbi.nlm.nih.gov/36708707/)
-
----
-
-## 🎯 Roadmap
-
-| Phase | Milestone | Target Date |
-|-------|-----------|-------------|
-| Phase 1 | Code generation (8 crates) | April 2026 |
-| Phase 2 | Validation & calibration | April-May 2026 |
-| Phase 3 | EIC Pathfinder submission | May 12, 2026 |
-| Phase 4 | Experimental validation (WP2) | 2026-2027 |
-| Phase 5 | Nature Aging submission | July 2026 |
-| Phase 6 | CentrosomeTransplant patent | December 2026 |
 
 ---
 
