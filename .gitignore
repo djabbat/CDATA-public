@@ -1,5 +1,38 @@
-target/
-**/*.rs.bk
-*.log
+# Rust
+/target/
+**/target/
 Cargo.lock
+*.rs.bk
+*.pdb
+*.exe
+*.dll
+*.so
+*.dylib
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Validation outputs
+validation_results/*.csv
+validation_results/*.json
+validation_results/*.png
+datasets/*_processed.csv
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.bak
+*.old
