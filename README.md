@@ -44,50 +44,6 @@ Tissues are continuously renewed by stem cells, yet the organism still ages — 
 
 ### Mathematical Formulation
 
-```bash
-cat > README.md << 'EOF'
-# CDATA Cell-DT v3.0
-
-## Centriolar Damage Accumulation Theory of Aging — Digital Twin Simulator
-
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![Tests](https://github.com/djabbat/CDATA-Longevity/actions/workflows/ci.yml/badge.svg)](https://github.com/djabbat/CDATA-Longevity/actions)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19174506.svg)](https://doi.org/10.5281/zenodo.19174506)
-
-**CDATA (Centriolar Damage Accumulation Theory of Aging)** — a theory of aging that explains organismal degradation as an inevitable consequence of the stem cell differentiation program. The maternal centriole of stem cells is the **only biological structure that irreversibly accumulates molecular damage throughout the lifespan** because it replicates via a template mechanism and is always inherited by the daughter cell that maintains stemness.
-
-## 📖 Table of Contents
-
-- [Theory in Brief](#-theory-in-brief)
-- [Key Mechanisms](#-key-mechanisms)
-- [Key Results](#-key-results)
-- [Quick Start](#-quick-start)
-- [Architecture](#-architecture)
-- [Interventions](#-interventions)
-- [Validation](#-validation)
-- [Publications](#-publications)
-- [License](#-license)
-- [Citation](#-citation)
-
----
-
-## 🧬 Theory in Brief
-
-### Central Thesis
-
-The maternal centriole of stem cells is the **only biological structure that irreversibly accumulates molecular damage throughout the lifespan** because:
-
-1. Centrioles replicate via a template mechanism — the old (maternal) centriole is never rebuilt from scratch
-2. During asymmetric stem cell division, the daughter cell that maintains stemness **always inherits the old maternal centriole**
-3. All chronologically accumulated molecular damage remains within the stem cell
-
-### The Paradox of Aging
-
-Tissues are continuously renewed by stem cells, yet the organism still ages — precisely because stem cells carry an increasing burden of damage in their maternal centrioles.
-
-### Mathematical Formulation
-
 ```
 d(Damage)/dt = α × ν(t) × (1 - Π(t)) × S(t) × A(t)
 ```
