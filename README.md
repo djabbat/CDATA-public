@@ -24,15 +24,19 @@
 
 ---
 
-## 🧬 Theory in Brief
+### 🧬 Theory in Brief
 
-### Central Thesis
+### Central Concepts
 
-The maternal centriole of stem cells is the **only biological structure that irreversibly accumulates molecular damage throughout the lifespan** because:
+The theory focuses on the maternal centriole of stem cells as a structure that may accumulate molecular changes over time. Key observations include:
 
-1. Centrioles replicate via a template mechanism — the old (maternal) centriole is never rebuilt from scratch
-2. During asymmetric stem cell division, the daughter cell that maintains stemness **always inherits the old maternal centriole**
-3. All chronologically accumulated molecular damage remains within the stem cell
+1. **Centriole replication is predominantly template‑dependent** — in most somatic stem cells, the existing centriole serves as a template for new centriole formation
+
+2. **Early embryonic development offers a reset** — during the first 2‑3 divisions of the zygote, centrioles are formed *de novo* (from scratch), establishing a fresh pool of centrioles in the developing embryo. After this initial window, centriole replication transitions to template‑dependent mechanisms
+
+3. **Asymmetric inheritance patterns** — in many asymmetric stem cell divisions, the daughter cell that maintains stem cell characteristics tends to inherit the older centriole, while the differentiating daughter typically receives the newly formed one
+
+4. **Potential for cumulative changes** — molecular modifications (oxidative changes, protein modifications, structural alterations) may gradually accumulate in centrioles that are retained over successive divisions
 
 ### The Paradox of Aging
 
