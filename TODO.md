@@ -1,12 +1,13 @@
 # TODO: CDATA v3.0 — Реализация и деплой
 
-## Статус: 🟡 Round 7 исправления применены (2026-03-28)
+## Статус: 🟢 Реорганизация завершена (2026-03-28)
 
 **Дата:** 2026-03-28
 **Версия концепции:** 3.0
 **Статус кода:** ✅ cargo build OK · cargo test 400/400 · basic_simulation OK
-**Документация:** ✅ CLAUDE.md · PARAMETERS.md · MAP.md · run.sh добавлены 2026-03-28
-**Peer review:** Round 6 → Major Revisions (файл: `PEER_REVIEW_ROUND6.md`)
+**Документация:** ✅ CLAUDE.md · PARAMETERS.md · MAP.md · README.md · run.sh
+**Репозитории:** ✅ private (djabbat/CDATA-private) · ✅ public (djabbat/CDATA-public, без приватных доков)
+**Peer review:** Round 6 → Major Revisions (исправлено в Round 7)
 
 ---
 
