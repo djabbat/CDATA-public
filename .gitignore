@@ -36,3 +36,11 @@ __pycache__/
 *.tmp
 *.bak
 *.old
+
+# Private project documents (not for public repo)
+CONCEPT.md
+CLAUDE.md
+TODO.md
+PARAMETERS.md
+MAP.md
+Horizon/
