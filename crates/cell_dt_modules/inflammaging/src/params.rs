@@ -7,6 +7,10 @@ pub struct InflammagingParams {
     pub sasp_decay: f64,
     pub nk_age_decay: f64,
     pub fibrosis_rate: f64,
+    // FIX C4: explicit DAMPs clearance rate (τ = 1/damps_decay_rate years)
+    // Biochemistry: extracellular HMGB1/HSP70 cleared by lysosomal degradation
+    // Default 0.1 yr⁻¹ → τ = 10 years; fast pool (HMGB1) τ~1 yr → use 1.0 if needed
+    pub damps_decay_rate: f64,
 }
 
 impl Default for InflammagingParams {
@@ -17,6 +21,7 @@ impl Default for InflammagingParams {
             sasp_decay: 0.1,
             nk_age_decay: 0.010,  // FIX Round 7 (B4): 0.005→0.010; ~50% NK decline by age 70 per PMID: 12803352
             fibrosis_rate: 0.02,
+            damps_decay_rate: 0.1, // FIX C4: τ = 10 yr for slow DAMPs pool (HMGB1 chronic)
         }
     }
 }
@@ -169,16 +174,26 @@ mod tests {
     // ── C4: DAMPs decay test (damps_half_life proxy) ──────────────────────────
 
     #[test]
-    fn test_damps_decay_rate_in_system() {
-        // The inflammaging system uses: damps_level * dt * 0.1 as decay coefficient
-        // Here we verify: with damps_rate=0 and initial damps=1.0, after 1 step,
-        // damps decreases by ~0.1*dt (decay only, no production).
-        // Decay coefficient is hardcoded as 0.1 in system.rs update.
-        // We verify via damps_rate param being positive (production-side).
+    fn test_damps_decay_rate_default() {
+        // C4 fix: explicit damps_decay_rate field (τ = 1/rate years)
         let p = InflammagingParams::default();
-        // damps production ∝ damps_rate; default 0.05 → moderate production
-        assert!(p.damps_rate > 0.0 && p.damps_rate < 1.0,
-            "damps_rate must be in (0,1), got {}", p.damps_rate);
+        assert!((p.damps_decay_rate - 0.1).abs() < 1e-9,
+            "Default damps_decay_rate should be 0.1 (τ=10yr), got {}", p.damps_decay_rate);
+    }
+
+    #[test]
+    fn test_damps_decay_rate_positive() {
+        let p = InflammagingParams::default();
+        assert!(p.damps_decay_rate > 0.0, "damps_decay_rate must be positive");
+    }
+
+    #[test]
+    fn test_damps_decay_tau_10_years() {
+        // At rate=0.1, τ = 10 years → 90% cleared after one τ
+        let p = InflammagingParams::default();
+        let tau = 1.0 / p.damps_decay_rate;
+        assert!((tau - 10.0).abs() < 1e-6,
+            "damps_decay τ should be 10 years, got {:.2}", tau);
     }
 
     #[test]

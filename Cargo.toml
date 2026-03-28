@@ -5,6 +5,7 @@ members = [
     "crates/cell_dt_modules/inflammaging",
     "crates/cell_dt_modules/asymmetric_division",
     "crates/cell_dt_modules/tissue_specific",
+    "crates/cell_dt_modules/aging_engine",
     "crates/cell_dt_validation",
     "crates/cell_dt_python",
 ]

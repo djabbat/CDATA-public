@@ -20,7 +20,8 @@ impl InflammagingSystem {
     ) {
         // DAMPs
         let damps_prod = self.params.damps_rate * (state.senescent_cell_fraction + dna_damage * 0.5);
-        state.damps_level = (state.damps_level + damps_prod * dt - 0.1 * state.damps_level * dt).clamp(0.0, 1.0);
+        // FIX C4: use named damps_decay_rate instead of hardcoded 0.1
+        state.damps_level = (state.damps_level + damps_prod * dt - self.params.damps_decay_rate * state.damps_level * dt).clamp(0.0, 1.0);
 
         // cGAS-STING
         state.cgas_sting_activity = (state.damps_level * self.params.cgas_sensitivity + mtdna_release * 0.5).min(1.0);

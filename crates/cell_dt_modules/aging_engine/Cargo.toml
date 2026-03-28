@@ -1,0 +1,13 @@
+[package]
+name = "cell_dt_aging_engine"
+version = "0.1.0"
+edition = "2021"
+description = "CDATA v3.0 — integrator: combines all 6 aging subsystems into one step"
+
+[dependencies]
+cell_dt_core = { path = "../../cell_dt_core" }
+cell_dt_mitochondrial = { path = "../mitochondrial" }
+cell_dt_inflammaging = { path = "../inflammaging" }
+cell_dt_tissue_specific = { path = "../tissue_specific" }
+cell_dt_asymmetric_division = { path = "../asymmetric_division" }
+serde = { version = "1", features = ["derive"] }
