@@ -21,6 +21,8 @@ if [[ -z "$1" ]]; then
     echo "Usage: $0 [command]"
     echo ""
     echo "Commands:"
+    echo "  gui         Launch Streamlit GUI (opens in browser)"
+    echo "  gui-native  Launch egui Desktop GUI (native window)"
     echo "  sim         Run basic simulation (all 4 tissues, Round 7 fixes)"
     echo "  test        Run full test suite (400+ tests)"
     echo "  build       Build workspace (release)"
@@ -100,6 +102,23 @@ case "$CMD" in
         check_rust
         echo -e "${BOLD}Generating documentation...${NC}"
         cargo doc --workspace --no-deps --open 2>&1
+        ;;
+
+    gui)
+        echo -e "${BOLD}Starting CDATA Streamlit GUI...${NC}"
+        if ! command -v streamlit &>/dev/null; then
+            echo "Installing streamlit..."
+            pip install streamlit matplotlib numpy
+        fi
+        echo "Opening http://localhost:8501"
+        streamlit run gui/cdata_gui.py --server.headless false
+        ;;
+
+    gui-native)
+        check_rust
+        echo -e "${BOLD}Building and launching egui Desktop GUI...${NC}"
+        cargo build -p cell_dt_gui --release 2>&1
+        ./target/release/cell_dt_gui
         ;;
 
     python)
