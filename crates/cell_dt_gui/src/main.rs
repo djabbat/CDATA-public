@@ -1,215 +1,411 @@
 /// CDATA v3.0 — Desktop GUI (eframe / egui)
 ///
-/// Panels:
-///   Left   — preset selector + intervention checkboxes + strength slider
-///   Center — 3×3 grid of plots (Damage, StemPool, ROS, SASP, Frailty,
-///             Telomere, EpiAge, NK, Fibrosis) over 0–100 years
-///
-/// Two simulation runs are shown in each plot:
-///   Gray  — Baseline (no interventions, selected preset)
-///   Green — With active interventions
+/// Layout:
+///   Left  (200px) — preset + interventions + age cursor
+///   Center         — 3×3 plots (threshold lines, cursor VLine, baseline vs ivs)
+///   Right (235px)  — values at cursor age, summary at 80, frailty onset
 
-use eframe::egui;
-use egui::Color32;
-use egui_plot::{Line, Plot, PlotPoints};
+use eframe::egui::{self, Color32, RichText};
+use egui_plot::{HLine, Line, Plot, PlotPoints, VLine};
 use cell_dt_aging_engine::{
     AgingEngine, AgeSnapshot, InterventionSet, SimulationConfig, SimulationPreset,
 };
 
-// ── App state ─────────────────────────────────────────────────────────────────
+// ── Variable metadata ─────────────────────────────────────────────────────────
+
+struct VarMeta {
+    name:        &'static str,
+    unit:        &'static str,
+    description: &'static str,
+    y_max:       f64,
+    warn:        f64,
+    crit:        f64,
+    bad_is_high: bool,
+}
+
+const VARS: [VarMeta; 9] = [
+    VarMeta { name:"Centriole Damage", unit:"index 0–1",
+        description:"Core CDATA. Irreversible centriolar DNA damage.\nα=0.0082 · ν(t) · (1−Π(t))",
+        y_max:1.0, warn:0.40, crit:0.70, bad_is_high:true },
+    VarMeta { name:"Stem Cell Pool", unit:"fraction",
+        description:"Residual regenerative capacity.\n= 1 − damage × 0.8. Below 0.3 → regen failure.",
+        y_max:1.0, warn:0.50, crit:0.30, bad_is_high:false },
+    VarMeta { name:"ROS Level", unit:"0–1",
+        description:"Reactive oxygen species (sigmoid, mtDNA-driven).\nAmplifies centriole damage via oxidative PTMs.",
+        y_max:1.0, warn:0.45, crit:0.70, bad_is_high:true },
+    VarMeta { name:"SASP Level", unit:"0–1",
+        description:"Senescence-Associated Secretory Phenotype.\nHormetic: low→stimulates repair; high→inhibits.",
+        y_max:1.0, warn:0.35, crit:0.65, bad_is_high:true },
+    VarMeta { name:"Frailty Index", unit:"0–1",
+        description:"Composite: damage×0.4 + SASP×0.3\n+ (1−stem)×0.2 + (1−telo)×0.1.\nClinical threshold ≈ 0.25 (Fried 2001).",
+        y_max:1.0, warn:0.25, crit:0.50, bad_is_high:true },
+    VarMeta { name:"Telomere Length", unit:"fraction",
+        description:"Normalized (1=full, 0=critically short).\nLoss: 0.012 × division_rate per year.\nMaster numbers 11/22 preserved.",
+        y_max:1.0, warn:0.40, crit:0.20, bad_is_high:false },
+    VarMeta { name:"Epigenetic Age", unit:"years",
+        description:"Horvath/Hannum clock estimate.\nDrift: (chrono−epi)×0.1 + EPI_STRESS×damage + SASP.",
+        y_max:130.0, warn:0.0, crit:0.0, bad_is_high:true },
+    VarMeta { name:"NK Efficiency", unit:"0–1",
+        description:"NK cell killing (1 − age×0.010), PMID 12803352.\n~70% decline by age 70. Clears senescent cells.",
+        y_max:1.0, warn:0.40, crit:0.20, bad_is_high:false },
+    VarMeta { name:"Fibrosis Level", unit:"0–1",
+        description:"SASP-driven extracellular matrix replacement.\nReduces regen_factor by up to 40% (L3 link).",
+        y_max:1.0, warn:0.25, crit:0.50, bad_is_high:true },
+];
+
+fn extract(s: &AgeSnapshot, i: usize) -> f64 {
+    match i {
+        0 => s.centriole_damage,
+        1 => s.stem_cell_pool,
+        2 => s.ros_level,
+        3 => s.sasp_level,
+        4 => s.frailty_index,
+        5 => s.telomere_length,
+        6 => s.epigenetic_age,
+        7 => s.nk_efficiency,
+        _ => s.fibrosis_level,
+    }
+}
+
+fn val_color(val: f64, meta: &VarMeta) -> Color32 {
+    if meta.y_max > 10.0 { return Color32::from_rgb(160, 190, 240); }
+    if meta.bad_is_high {
+        if val >= meta.crit  { Color32::from_rgb(235, 80, 60) }
+        else if val >= meta.warn { Color32::from_rgb(225, 175, 35) }
+        else { Color32::from_rgb(75, 195, 95) }
+    } else {
+        if val <= meta.crit  { Color32::from_rgb(235, 80, 60) }
+        else if val <= meta.warn { Color32::from_rgb(225, 175, 35) }
+        else { Color32::from_rgb(75, 195, 95) }
+    }
+}
+
+fn pct(base: f64, new: f64) -> f64 {
+    if base.abs() < 1e-9 { 0.0 } else { (new - base) / base * 100.0 }
+}
+
+fn nearest<'a>(snaps: &'a [AgeSnapshot], age: f64) -> Option<&'a AgeSnapshot> {
+    snaps.iter().min_by(|a, b| {
+        (a.age_years - age).abs().partial_cmp(&(b.age_years - age).abs()).unwrap()
+    })
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
 
 struct CdataApp {
-    preset:    SimulationPreset,
-    ivs:       InterventionSet,
-    baseline:  Vec<AgeSnapshot>,
-    with_ivs:  Vec<AgeSnapshot>,
-    dirty:     bool,
+    preset:     SimulationPreset,
+    ivs:        InterventionSet,
+    baseline:   Vec<AgeSnapshot>,
+    with_ivs:   Vec<AgeSnapshot>,
+    cursor_age: f64,
+    dirty:      bool,
 }
 
 impl CdataApp {
     fn new() -> Self {
         let mut app = Self {
-            preset:   SimulationPreset::Normal,
-            ivs:      InterventionSet::default(),
+            preset: SimulationPreset::Normal,
+            ivs:    InterventionSet::default(),
             baseline: Vec::new(),
             with_ivs: Vec::new(),
-            dirty:    true,
+            cursor_age: 60.0,
+            dirty: true,
         };
         app.recompute();
         app
     }
 
     fn recompute(&mut self) {
-        let base_cfg = SimulationConfig {
+        let b_cfg = SimulationConfig {
             preset: self.preset.clone(),
             interventions: InterventionSet::default(),
             ..Default::default()
         };
-        self.baseline = AgingEngine::new(base_cfg).unwrap().run(1);
+        self.baseline = AgingEngine::new(b_cfg).unwrap().run(1);
 
-        let ivs_cfg = SimulationConfig {
+        let i_cfg = SimulationConfig {
             preset: self.preset.clone(),
             interventions: self.ivs.clone(),
             ..Default::default()
         };
-        self.with_ivs = AgingEngine::new(ivs_cfg).unwrap().run(1);
-
+        self.with_ivs = AgingEngine::new(i_cfg).unwrap().run(1);
         self.dirty = false;
     }
 }
-
-// ── Plot helpers ──────────────────────────────────────────────────────────────
-
-fn make_points(snaps: &[AgeSnapshot], f: impl Fn(&AgeSnapshot) -> f64) -> PlotPoints {
-    snaps.iter().map(|s| [s.age_years, f(s)]).collect()
-}
-
-fn subplot(
-    ui: &mut egui::Ui,
-    label: &str,
-    baseline: &[AgeSnapshot],
-    with_ivs: &[AgeSnapshot],
-    extractor: impl Fn(&AgeSnapshot) -> f64,
-    y_max: f64,
-) {
-    let show_ivs = with_ivs.iter().zip(baseline.iter())
-        .any(|(a, b)| (extractor(a) - extractor(b)).abs() > 1e-6);
-
-    Plot::new(label)
-        .height(140.0)
-        .include_y(0.0)
-        .include_y(y_max)
-        .show(ui, |plot_ui| {
-            plot_ui.line(
-                Line::new(make_points(baseline, &extractor))
-                    .name("Baseline")
-                    .color(Color32::from_rgb(120, 150, 200))
-                    .width(2.0),
-            );
-            if show_ivs {
-                plot_ui.line(
-                    Line::new(make_points(with_ivs, &extractor))
-                        .name("Interventions")
-                        .color(Color32::from_rgb(80, 200, 100))
-                        .width(2.0),
-                );
-            }
-        });
-    ui.label(egui::RichText::new(label).small().color(Color32::GRAY));
-}
-
-// ── eframe::App ───────────────────────────────────────────────────────────────
 
 impl eframe::App for CdataApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.dirty { self.recompute(); }
 
-        // ── Left panel: controls ──────────────────────────────────────────────
+        let ivs_active = self.ivs.any_active();
+        let cursor     = self.cursor_age;
+
+        // Clone slices once — avoids borrow conflicts with &mut self inside closures
+        let baseline: Vec<AgeSnapshot>  = self.baseline.clone();
+        let with_ivs: Vec<AgeSnapshot>  = if ivs_active { self.with_ivs.clone() } else { vec![] };
+
+        // ── LEFT panel ────────────────────────────────────────────────────────
         egui::SidePanel::left("controls")
-            .min_width(200.0)
-            .max_width(220.0)
+            .min_width(195.0).max_width(195.0)
             .show(ctx, |ui| {
-                ui.heading("CDATA v3.0");
-                ui.separator();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(4.0);
+                    ui.heading(RichText::new("CDATA v3.0").strong());
+                    ui.label(RichText::new("Cell Digital Twin Simulator").small().weak());
+                    ui.separator();
 
-                ui.label(egui::RichText::new("Preset").strong());
-                for preset in [
-                    SimulationPreset::Normal,
-                    SimulationPreset::Progeria,
-                    SimulationPreset::Longevity,
-                    SimulationPreset::Isc,
-                    SimulationPreset::Muscle,
-                    SimulationPreset::Neural,
-                ] {
-                    let selected = self.preset == preset;
-                    let btn = egui::Button::new(preset.label())
-                        .fill(if selected {
-                            Color32::from_rgb(60, 100, 160)
-                        } else {
-                            Color32::from_rgb(45, 45, 45)
-                        });
-                    if ui.add(btn).clicked() && !selected {
-                        self.preset = preset;
-                        self.dirty  = true;
-                    }
-                }
-
-                ui.separator();
-                ui.label(egui::RichText::new("Interventions").strong());
-
-                macro_rules! chk {
-                    ($field:ident, $label:literal) => {
-                        if ui.checkbox(&mut self.ivs.$field, $label).changed() {
-                            self.dirty = true;
+                    ui.label(RichText::new("▸ Preset").strong());
+                    for preset in [
+                        SimulationPreset::Normal,   SimulationPreset::Progeria,
+                        SimulationPreset::Longevity, SimulationPreset::Isc,
+                        SimulationPreset::Muscle,    SimulationPreset::Neural,
+                    ] {
+                        let sel  = self.preset == preset;
+                        let fill = if sel { Color32::from_rgb(50, 90, 155) }
+                                   else   { Color32::from_rgb(38, 38, 48) };
+                        let lbl  = RichText::new(preset.label())
+                            .color(if sel { Color32::WHITE } else { Color32::LIGHT_GRAY });
+                        if ui.add(egui::Button::new(lbl).fill(fill)
+                            .min_size([185.0, 22.0].into())).clicked() && !sel
+                        {
+                            self.preset = preset;
+                            self.dirty  = true;
                         }
-                    };
-                }
-                chk!(caloric_restriction,      "Caloric Restriction");
-                chk!(senolytics,               "Senolytics");
-                chk!(antioxidants,             "Antioxidants");
-                chk!(mtor_inhibition,          "mTOR Inhibition");
-                chk!(telomerase,               "Telomerase");
-                chk!(nk_boost,                 "NK Boost");
-                chk!(stem_cell_therapy,        "Stem Cell Therapy");
-                chk!(epigenetic_reprogramming, "Epigenetic Reprog.");
+                    }
 
-                ui.separator();
-                ui.label(egui::RichText::new("Strength").strong());
-                let slider = egui::Slider::new(&mut self.ivs.strength, 0.0..=1.0)
-                    .text("effect")
-                    .clamp_to_range(true);
-                if ui.add(slider).changed() { self.dirty = true; }
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.label(RichText::new("▸ Interventions").strong());
+                    ui.label(RichText::new("Green = with interventions").small().weak());
+                    ui.add_space(2.0);
 
-                ui.separator();
-                ui.add_space(4.0);
-                let last = self.baseline.last();
-                if let Some(s) = last {
-                    ui.label(egui::RichText::new("At age 100:").small().strong());
-                    ui.label(format!("Damage   {:.3}", s.centriole_damage));
-                    ui.label(format!("Frailty  {:.3}", s.frailty_index));
-                    ui.label(format!("Telomere {:.3}", s.telomere_length));
-                    ui.label(format!("EpiAge   {:.1}", s.epigenetic_age));
-                }
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new("PMID: 36583780").small().weak());
-                ui.label(egui::RichText::new("Tkemaladze J., 2023").small().weak());
+                    macro_rules! chk {
+                        ($field:ident, $label:literal, $tip:literal) => {{
+                            if ui.checkbox(&mut self.ivs.$field, $label)
+                                .on_hover_text($tip).changed() { self.dirty = true; }
+                        }};
+                    }
+                    chk!(caloric_restriction,      "Caloric Restriction",    "−15% damage rate  (PMID 17460228)");
+                    chk!(senolytics,               "Senolytics",             "Navitoclax/D+Q: extra NK clear ×0.3");
+                    chk!(antioxidants,             "Antioxidants",           "NAC/MitoQ: −20% ROS post-step");
+                    chk!(mtor_inhibition,          "mTOR Inhibition",        "Rapamycin: +20% protection factor");
+                    chk!(telomerase,               "Telomerase",             "hTERT: −50% telomere loss/division");
+                    chk!(nk_boost,                 "NK Cell Boost",          "IL-15: +30% NK efficiency");
+                    chk!(stem_cell_therapy,        "Stem Cell Therapy",      "HSC transplant: pool ≥ 0.2");
+                    chk!(epigenetic_reprogramming, "Epigenetic Reprog.",     "OSK: −30%/yr epigenetic overshoot");
+
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("Strength").small());
+                    if ui.add(egui::Slider::new(&mut self.ivs.strength, 0.0..=1.0)
+                        .clamp_to_range(true)).changed() { self.dirty = true; }
+
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.label(RichText::new("▸ Age cursor (yellow line)").strong());
+                    ui.add(egui::Slider::new(&mut self.cursor_age, 0.0..=100.0)
+                        .text("yr").clamp_to_range(true));
+
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label(RichText::new("PMID 36583780").small().weak());
+                    ui.label(RichText::new("Tkemaladze J., 2023").small().weak());
+                });
             });
 
-        // ── Central panel: 3×3 plots ──────────────────────────────────────────
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let b = &self.baseline;
-            let w = &self.with_ivs;
+        // ── RIGHT panel ───────────────────────────────────────────────────────
+        egui::SidePanel::right("values")
+            .min_width(235.0).max_width(235.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(format!("Values at age {:.0}", cursor))
+                        .strong().size(13.0));
+                    ui.separator();
 
+                    let b_snap = nearest(&baseline, cursor);
+                    let i_snap = if ivs_active { nearest(&with_ivs, cursor) } else { None };
+
+                    if let Some(b) = b_snap {
+                        for (idx, meta) in VARS.iter().enumerate() {
+                            let bv = extract(b, idx);
+                            let iv = i_snap.map(|s| extract(s, idx));
+                            let col = val_color(bv, meta);
+                            let is_epi = meta.y_max > 10.0;
+
+                            ui.add_space(2.0);
+                            ui.label(RichText::new(meta.name).small().strong()
+                                .color(Color32::from_rgb(210, 215, 230)));
+
+                            ui.horizontal(|ui| {
+                                let base_txt = if is_epi {
+                                    format!("Base {:.1} yr", bv)
+                                } else {
+                                    format!("Base {:.3}", bv)
+                                };
+                                ui.label(RichText::new(base_txt).small().color(col));
+
+                                if let Some(iv_val) = iv {
+                                    let delta = iv_val - bv;
+                                    let sign  = if delta >= 0.0 { "+" } else { "" };
+                                    let p     = pct(bv, iv_val);
+                                    let ic    = val_color(iv_val, meta);
+                                    let ivs_txt = if is_epi {
+                                        format!("  Ivs {:.1} ({}{:.1}%)", iv_val, sign, p)
+                                    } else {
+                                        format!("  Ivs {:.3} ({}{:.0}%)", iv_val, sign, p)
+                                    };
+                                    ui.label(RichText::new(ivs_txt).small().color(ic));
+                                }
+                            });
+
+                            // Biological description
+                            for line in meta.description.lines() {
+                                ui.label(RichText::new(line).small().weak()
+                                    .color(Color32::from_rgb(130, 140, 150)));
+                            }
+                        }
+                    }
+
+                    // ── Summary at 80 ─────────────────────────────────────
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label(RichText::new("▸ Summary at age 80").strong());
+
+                    if let (Some(b80), _) = (nearest(&baseline, 80.0), ()) {
+                        let i80 = if ivs_active { nearest(&with_ivs, 80.0) } else { None };
+
+                        for (field, name) in [
+                            (0usize, "Damage  "), (4, "Frailty "),
+                            (5, "Telomere"), (7, "NK Eff. "),
+                        ] {
+                            let bv = extract(b80, field);
+                            let iv = i80.map(|s| extract(s, field)).unwrap_or(bv);
+                            let col = val_color(iv, &VARS[field]);
+                            ui.label(RichText::new(
+                                format!("{}: {:.3} → {:.3}  ({:+.0}%)",
+                                    name, bv, iv, pct(bv, iv))
+                            ).small().color(col));
+                        }
+                    }
+
+                    // ── Frailty onset ─────────────────────────────────────
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.label(RichText::new("▸ Frailty onset (≥ 0.25)").strong());
+
+                    let fa_b = baseline.iter()
+                        .find(|s| s.frailty_index >= 0.25)
+                        .map(|s| s.age_years).unwrap_or(100.0);
+                    let fa_i = if ivs_active {
+                        with_ivs.iter()
+                            .find(|s| s.frailty_index >= 0.25)
+                            .map(|s| s.age_years).unwrap_or(100.0)
+                    } else { fa_b };
+
+                    if ivs_active {
+                        let gain = fa_i - fa_b;
+                        let col  = if gain > 0.0 { Color32::from_rgb(75, 200, 95) }
+                                   else if gain < 0.0 { Color32::from_rgb(230, 80, 60) }
+                                   else { Color32::GRAY };
+                        ui.label(RichText::new(format!(
+                            "Base: age {:.0}   Ivs: age {:.0}", fa_b, fa_i)).small());
+                        ui.label(RichText::new(format!(
+                            "Lifespan gain: {:+.0} years", gain)).small().color(col));
+                    } else {
+                        ui.label(RichText::new(format!("Age {:.0}", fa_b)).small());
+                    }
+                });
+            });
+
+        // ── CENTER: 3×3 plots ─────────────────────────────────────────────────
+        egui::CentralPanel::default().show(ctx, |ui| {
             egui::Grid::new("plots")
                 .num_columns(3)
-                .spacing([8.0, 4.0])
+                .spacing([6.0, 2.0])
                 .show(ui, |ui| {
-                    subplot(ui, "Centriole Damage",  b, w, |s| s.centriole_damage, 1.0);
-                    subplot(ui, "Stem Cell Pool",    b, w, |s| s.stem_cell_pool,   1.0);
-                    subplot(ui, "ROS Level",         b, w, |s| s.ros_level,        1.0);
-                    ui.end_row();
+                    for row in 0..3usize {
+                        for col in 0..3usize {
+                            let idx  = row * 3 + col;
+                            let meta = &VARS[idx];
 
-                    subplot(ui, "SASP Level",        b, w, |s| s.sasp_level,       1.0);
-                    subplot(ui, "Frailty Index",     b, w, |s| s.frailty_index,    1.0);
-                    subplot(ui, "Telomere Length",   b, w, |s| s.telomere_length,  1.0);
-                    ui.end_row();
+                            let b_pts: PlotPoints =
+                                baseline.iter().map(|s| [s.age_years, extract(s, idx)]).collect();
+                            let i_pts: PlotPoints =
+                                with_ivs.iter().map(|s| [s.age_years, extract(s, idx)]).collect();
 
-                    subplot(ui, "Epigenetic Age",    b, w, |s| s.epigenetic_age,  130.0);
-                    subplot(ui, "NK Efficiency",     b, w, |s| s.nk_efficiency,    1.0);
-                    subplot(ui, "Fibrosis Level",    b, w, |s| s.fibrosis_level,   1.0);
-                    ui.end_row();
+                            let ivs_differs = ivs_active && with_ivs.iter().zip(baseline.iter())
+                                .any(|(a, b)| (extract(a, idx) - extract(b, idx)).abs() > 1e-6);
+
+                            ui.vertical(|ui| {
+                                // Header
+                                ui.label(RichText::new(
+                                    format!("{} [{}]", meta.name, meta.unit))
+                                    .small().strong()
+                                    .color(Color32::from_rgb(195, 210, 235)));
+
+                                Plot::new(format!("plt{}", idx))
+                                    .height(158.0)
+                                    .include_y(0.0)
+                                    .include_y(meta.y_max)
+                                    .x_axis_label("Age (yr)")
+                                    .show_axes([true, true])
+                                    .show(ui, |plot_ui| {
+                                        // Threshold lines (not for epigenetic age)
+                                        if meta.y_max <= 2.0 {
+                                            let warn_col = Color32::from_rgba_premultiplied(195, 155, 0, 110);
+                                            let crit_col = Color32::from_rgba_premultiplied(195, 55, 40, 130);
+                                            let dash = egui_plot::LineStyle::Dashed { length: 8.0 };
+                                            if meta.warn > 0.0 {
+                                                plot_ui.hline(HLine::new(meta.warn)
+                                                    .color(warn_col).width(1.2).style(dash));
+                                                plot_ui.hline(HLine::new(meta.crit)
+                                                    .color(crit_col).width(1.2).style(dash));
+                                            }
+                                        }
+                                        // Cursor
+                                        plot_ui.vline(VLine::new(cursor)
+                                            .color(Color32::from_rgba_premultiplied(255, 250, 60, 180))
+                                            .width(1.5)
+                                            .style(egui_plot::LineStyle::Dashed { length: 6.0 }));
+                                        // Baseline (blue)
+                                        plot_ui.line(Line::new(b_pts)
+                                            .name("Baseline")
+                                            .color(Color32::from_rgb(100, 145, 215))
+                                            .width(2.0));
+                                        // Interventions (green)
+                                        if ivs_differs {
+                                            plot_ui.line(Line::new(i_pts)
+                                                .name("Interventions")
+                                                .color(Color32::from_rgb(65, 195, 85))
+                                                .width(2.0));
+                                        }
+                                    });
+
+                                // Value readout at cursor
+                                if let Some(snap) = nearest(&baseline, cursor) {
+                                    let val = extract(snap, idx);
+                                    let col = val_color(val, meta);
+                                    let txt = if meta.y_max > 10.0 {
+                                        format!("@ age {:.0}: {:.1} yr", cursor, val)
+                                    } else {
+                                        format!("@ age {:.0}: {:.3}", cursor, val)
+                                    };
+                                    ui.label(RichText::new(txt).small().color(col));
+                                }
+                            });
+                        }
+                        ui.end_row();
+                    }
                 });
         });
     }
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────────
-
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("CDATA v3.0 — Cell Digital Twin")
-            .with_inner_size([1100.0, 750.0]),
+            .with_title("CDATA v3.0 — Cell Digital Twin Simulator")
+            .with_inner_size([1300.0, 840.0]),
         ..Default::default()
     };
     eframe::run_native(

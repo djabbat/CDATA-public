@@ -118,7 +118,7 @@ case "$CMD" in
         check_rust
         echo -e "${BOLD}Building and launching egui Desktop GUI...${NC}"
         cargo build -p cell_dt_gui --release 2>&1
-        ./target/release/cell_dt_gui
+        DISPLAY="${DISPLAY:-:0}" ./target/release/cell_dt_gui
         ;;
 
     python)
