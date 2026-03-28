@@ -2,10 +2,31 @@
 
 ## Статус: 🟡 Round 7 исправления применены (2026-03-28)
 
-**Дата:** 2026-03-27
+**Дата:** 2026-03-28
 **Версия концепции:** 3.0
 **Статус кода:** ✅ cargo build OK · cargo test 400/400 · basic_simulation OK
+**Документация:** ✅ CLAUDE.md · PARAMETERS.md · MAP.md · run.sh добавлены 2026-03-28
 **Peer review:** Round 6 → Major Revisions (файл: `PEER_REVIEW_ROUND6.md`)
+
+---
+
+## ⚠️ НЕСООТВЕТСТВИЕ КОНЦЕПЦИИ (обнаружено 2026-03-28)
+
+CONCEPT.md заявляет **8 крейтов**, реализовано **7**:
+
+| Крейт | Статус | Примечание |
+|-------|--------|------------|
+| `cell_dt_core` | ✅ | |
+| `cell_dt_modules/mitochondrial` | ✅ | |
+| `cell_dt_modules/inflammaging` | ✅ | |
+| `cell_dt_modules/asymmetric_division` | ✅ | |
+| `cell_dt_modules/tissue_specific` | ✅ | |
+| `cell_dt_validation` | ✅ | |
+| `cell_dt_python` | ✅ | |
+| `cell_dt_modules/aging_engine` | ❌ отсутствует | Интегратор механизмов — логика живёт в `basic_simulation.rs` |
+| `cell_dt_gui` | ⏸ пропущен | egui GUI — нет дисплея на сервере |
+
+**Требуется:** создать `crates/cell_dt_modules/aging_engine` как отдельный крейт-интегратор (объединяет все 6 систем), добавить в Cargo.toml workspace.
 
 ---
 
