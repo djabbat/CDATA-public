@@ -22,7 +22,7 @@ st.set_page_config(
 T = {
     "EN": {
         "title":        "🧬 CDATA v3.0 — Centriolar Damage Accumulation Theory of Aging",
-        "subtitle":     "**EIC Pathfinder demo** · Round 7 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 Read the article](https://pubmed.ncbi.nlm.nih.gov/36583780/) · Tkemaladze J. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ Parameters",
         "preset":       "Preset",
         "bio_params":   "🔬 Biological parameters",
@@ -101,7 +101,7 @@ T = {
     },
     "FR": {
         "title":        "🧬 CDATA v3.0 — Théorie de l'Accumulation des Dommages Centriolaires",
-        "subtitle":     "**Démo EIC Pathfinder** · Round 7 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 Lire l'article](https://pubmed.ncbi.nlm.nih.gov/36583780/) · Tkemaladze J. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ Paramètres",
         "preset":       "Préréglage",
         "bio_params":   "🔬 Paramètres biologiques",
@@ -164,7 +164,7 @@ T = {
     },
     "ES": {
         "title":        "🧬 CDATA v3.0 — Teoría de Acumulación de Daño Centriolítico",
-        "subtitle":     "**Demo EIC Pathfinder** · Ronda 7 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 Leer el artículo](https://pubmed.ncbi.nlm.nih.gov/36583780/) · Tkemaladze J. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ Parámetros",
         "preset":       "Preset",
         "bio_params":   "🔬 Parámetros biológicos",
@@ -227,7 +227,7 @@ T = {
     },
     "AR": {
         "title":        "🧬 CDATA v3.0 — نظرية تراكم الأضرار المركزية في الشيخوخة",
-        "subtitle":     "**عرض EIC Pathfinder** · الجولة 7 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 اقرأ المقالة](https://pubmed.ncbi.nlm.nih.gov/36583780/) · Tkemaladze J. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ المعاملات",
         "preset":       "الإعداد المسبق",
         "bio_params":   "🔬 المعاملات البيولوجية",
@@ -289,7 +289,7 @@ T = {
     },
     "ZH": {
         "title":        "🧬 CDATA v3.0 — 中心粒损伤积累衰老理论模拟器",
-        "subtitle":     "**EIC Pathfinder 演示** · 第7轮 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 阅读文章](https://pubmed.ncbi.nlm.nih.gov/36583780/) · Tkemaladze J. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ 参数",
         "preset":       "预设方案",
         "bio_params":   "🔬 生物学参数",
@@ -352,7 +352,7 @@ T = {
     },
     "RU": {
         "title":        "🧬 CDATA v3.0 — Теория накопления центриолярных повреждений",
-        "subtitle":     "**Демо EIC Pathfinder** · Round 7 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 Читать статью](https://pubmed.ncbi.nlm.nih.gov/36583780/) · Ткемаладзе Д. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ Параметры",
         "preset":       "Пресет",
         "bio_params":   "🔬 Биологические параметры",
@@ -427,7 +427,7 @@ T = {
     },
     "KA": {
         "title":        "🧬 CDATA v3.0 — ცენტრიოლარული დაზიანების დაგროვების თეორია",
-        "subtitle":     "**EIC Pathfinder დემო** · Round 7 · [PMID 36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)",
+        "subtitle":     "[📄 სტატიის წაკითხვა](https://pubmed.ncbi.nlm.nih.gov/36583780/) · თქემალაძე დ. *Mol Biol Rep* 2023 · PMID 36583780",
         "params":       "⚙️ პარამეტრები",
         "preset":       "პრესეტი",
         "bio_params":   "🔬 ბიოლოგიური პარამეტრები",
