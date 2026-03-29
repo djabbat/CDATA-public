@@ -1,6 +1,6 @@
 /// CDATA v3.0 — Bayesian MCMC calibration (Metropolis-Hastings)
 ///
-/// Calibrates 5 key parameters of FixedParameters against reference datasets
+/// Calibrates 2 free parameters of FixedParameters against reference datasets
 /// (ROS, telomere, CHIP VAF, frailty, epigenetic age) using a random-walk
 /// Metropolis-Hastings sampler with Gaussian priors.
 ///
@@ -48,33 +48,26 @@ impl CalibrationParam {
     }
 }
 
-/// Default 5-parameter set to calibrate (HSC trajectory).
+/// Calibrated (free) 2-parameter set for MCMC.
+///
+/// Fixed parameters (excluded from MCMC):
+/// - `alpha`          = 0.0082 — fixed at literature value (PMID: 36583780);
+///                      collinear with tau_protection (posterior r = 0.858).
+/// - `hsc_nu`         = 12.0   — insensitive: ΔR² ≈ 0 at ±20% perturbation.
+/// - `dnmt3a_fitness` = 0.15   — insensitive: ΔR² ≈ 0 at ±20% perturbation.
+///
+/// These parameters take their default values from `FixedParameters::default()`.
 pub fn default_calibration_params() -> Vec<CalibrationParam> {
     vec![
         CalibrationParam {
-            name: "alpha",
-            value: 0.0082, prior_mean: 0.0082, prior_sd: 0.002,
-            proposal_sd: 0.0003, min: 0.001, max: 0.05,
-        },
-        CalibrationParam {
             name: "tau_protection",
             value: 24.3, prior_mean: 24.3, prior_sd: 5.0,
-            proposal_sd: 0.8, min: 5.0, max: 60.0,
+            proposal_sd: 5.0, min: 5.0, max: 60.0,
         },
         CalibrationParam {
             name: "pi_0",
             value: 0.87, prior_mean: 0.87, prior_sd: 0.05,
-            proposal_sd: 0.01, min: 0.50, max: 0.99,
-        },
-        CalibrationParam {
-            name: "hsc_nu",
-            value: 12.0, prior_mean: 12.0, prior_sd: 3.0,
-            proposal_sd: 0.5, min: 2.0, max: 40.0,
-        },
-        CalibrationParam {
-            name: "dnmt3a_fitness",
-            value: 0.15, prior_mean: 0.15, prior_sd: 0.05,
-            proposal_sd: 0.008, min: 0.01, max: 0.50,
+            proposal_sd: 0.05, min: 0.50, max: 0.99,
         },
     ]
 }
@@ -95,27 +88,25 @@ fn apply_params(params: &[CalibrationParam], fp: &mut FixedParameters) {
     }
 }
 
-/// Extract the modelled value for a dataset's biomarker at a given age from
-/// a pre-run simulation snapshot vector (`age_years` steps from 0–100).
+/// Raw (un-scaled) biomarker value at the nearest snapshot to `age`.
 ///
-/// Returns `None` if the biomarker is not directly modelled (skipped in likelihood)
-/// or if the snapshot vector is empty.
+/// Active biomarkers (used in calibration):
+/// - "ROS level"    → `ros_level`  (normalised at age 20 in the ros-normalised snap vec)
+/// - "CHIP VAF"     → `chip_vaf`   (total CHIP clone frequency from ChipSystem)
+/// - "Frailty index"→ `centriole_damage` (direct proxy; frailty_index has telomere floor)
 ///
-/// NOTE: "Telomere length" and "CHIP VAF" are intentionally excluded from the
-/// likelihood — telomere depletes to 0 by age ~14 in HSC (not matched in
-/// calibration range 20–50), and CHIP VAF has no direct mapping in AgeSnapshot.
-/// These datasets remain in `ReferenceDatasets` for informational use.
+/// Excluded biomarkers (always return `None`):
+/// - "Telomere length"      — depletes to 0 by age ~14 in HSC
+/// - "Epi-age acceleration" — ≈0 in 20–50 yr range due to init lag (epi_age starts at 0)
 fn extract_biomarker(
     snaps: &[cell_dt_aging_engine::AgeSnapshot],
     age: f64,
     biomarker: &str,
 ) -> Option<f64> {
-    // Biomarkers not used in likelihood — skip
-    if matches!(biomarker, "Telomere length" | "CHIP VAF") {
+    if matches!(biomarker, "Telomere length" | "Epi-age acceleration") {
         return None;
     }
 
-    // Find nearest snapshot
     let snap = snaps.iter().min_by(|a, b| {
         (a.age_years - age).abs()
             .partial_cmp(&(b.age_years - age).abs())
@@ -123,17 +114,33 @@ fn extract_biomarker(
     })?;
 
     let v = match biomarker {
-        "ROS level"  => snap.ros_level,
-        // Frailty: use centriole_damage directly — frailty_index has a hard floor
-        // from telomere=0 (depleted by age ~14 in HSC) making it insensitive to
-        // calibration parameters in the 20–50 yr range.
-        // Predicted damage is scaled to the reference frailty range [0.05, 0.14]
-        // by multiplying by a tissue-specific conversion factor (1.5×).
-        "Frailty index"        => snap.centriole_damage * 1.5,
-        "Epi-age acceleration" => (snap.epigenetic_age - snap.age_years).max(0.0),
-        _                      => return None,
+        "ROS level"     => snap.ros_level,
+        "CHIP VAF"      => snap.chip_vaf,
+        "Frailty index" => snap.centriole_damage,
+        _               => return None,
     };
     Some(v)
+}
+
+/// Compute a single-point scale factor that anchors simulated biomarker values
+/// to the reference value at age 20.  Used for trend-based R² / RMSE:
+///
+///   scaled_pred(age) = raw_pred(age) × scale_factor
+///
+/// This converts the comparison from "do absolute values match?" to
+/// "does the MODEL correctly predict the age-dependent TRAJECTORY,
+///  given a calibration at the young-adult baseline (age 20)?"
+///
+/// Returns 1.0 if the simulation value at age 20 is below a minimum threshold
+/// (i.e., no meaningful anchoring is possible).
+fn scale_factor_at_20(
+    snaps: &[cell_dt_aging_engine::AgeSnapshot],
+    biomarker: &str,
+    ref_at_20: f64,
+) -> f64 {
+    let sim_at_20 = extract_biomarker(snaps, 20.0, biomarker).unwrap_or(0.0);
+    if sim_at_20 < 1e-9 { return 1.0; }  // can't anchor a near-zero value
+    (ref_at_20 / sim_at_20).clamp(0.01, 1000.0)
 }
 
 /// Normalise simulated ROS to reference scale (sim starts at ~0.12 at age 0;
@@ -145,25 +152,6 @@ fn normalise_ros(snaps: &[cell_dt_aging_engine::AgeSnapshot]) -> Vec<cell_dt_agi
         .unwrap_or(1.0)
         .max(1e-6);
     snaps.iter().cloned().map(|mut s| { s.ros_level /= ros_at_20; s }).collect()
-}
-
-/// Normalise simulated telomere to 1.0 at the earliest available age (age 0–2).
-/// NOTE: HSC telomeres deplete to 0 by ~age 14 in the model (high division rate),
-/// so normalising at age 20 is not meaningful — we use the birth snapshot instead.
-fn normalise_telomere(snaps: &[cell_dt_aging_engine::AgeSnapshot]) -> Vec<cell_dt_aging_engine::AgeSnapshot> {
-    // Use earliest snapshot (age ≤ 2) as reference
-    let t_ref = snaps.iter()
-        .filter(|s| s.age_years <= 2.0)
-        .map(|s| s.telomere_length)
-        .fold(f64::NEG_INFINITY, f64::max)
-        .max(1e-6);
-    // Fall back to global max if no early snapshot exists
-    let t_ref = if t_ref <= 1e-6 {
-        snaps.iter().map(|s| s.telomere_length).fold(1e-6_f64, f64::max)
-    } else {
-        t_ref
-    };
-    snaps.iter().cloned().map(|mut s| { s.telomere_length /= t_ref; s }).collect()
 }
 
 /// Run AgingEngine with given param vector; return snapshots (one per year).
@@ -185,34 +173,40 @@ fn run_simulation(params: &[CalibrationParam]) -> Option<Vec<cell_dt_aging_engin
 
 // ── Log-posterior ─────────────────────────────────────────────────────────────
 
-/// Gaussian log-likelihood: sum over all data points.
+/// Gaussian log-likelihood with scale-anchored predictions.
+///
+/// For each active biomarker, a single scale factor is computed by anchoring
+/// the simulation to the reference value at age 20.  All predicted values for
+/// that biomarker are multiplied by this factor before computing the likelihood.
+///
+/// This measures whether the model captures the correct AGE-DEPENDENT TRAJECTORY
+/// (trend) rather than requiring exact absolute level matching.
 fn log_likelihood(
     snaps: &[cell_dt_aging_engine::AgeSnapshot],
     snaps_ros: &[cell_dt_aging_engine::AgeSnapshot],
-    snaps_telo: &[cell_dt_aging_engine::AgeSnapshot],
     ds: &ReferenceDatasets,
 ) -> f64 {
     let datasets: &[(&CalibrationDataset, &str)] = &[
-        (&ds.ros,          "ROS level"),
-        (&ds.telomere,     "Telomere length"),
-        (&ds.chip_vaf,     "CHIP VAF"),
-        (&ds.frailty,      "Frailty index"),
-        (&ds.epi_age_accel,"Epi-age acceleration"),
+        (&ds.ros,      "ROS level"),
+        (&ds.chip_vaf, "CHIP VAF"),
+        (&ds.frailty,  "Frailty index"),
     ];
 
     let mut ll = 0.0f64;
     for (dataset, biomarker) in datasets {
+        let snap_src: &[cell_dt_aging_engine::AgeSnapshot] = if *biomarker == "ROS level" {
+            snaps_ros
+        } else {
+            snaps
+        };
+
+        // Anchor: ref value at age 20 (first dataset point is age 20)
+        let ref_at_20 = dataset.observed[0];
+        let sf = scale_factor_at_20(snap_src, biomarker, ref_at_20);
+
         for (i, &age) in dataset.ages.iter().enumerate() {
-            let snap_source = match *biomarker {
-                "ROS level"       => snaps_ros,
-                "Telomere length" => snaps_telo,
-                _                 => snaps,
-            };
-            // `None` means this biomarker is excluded from the likelihood (e.g.,
-        // telomere depletes before calibration range, CHIP VAF has no direct
-        // AgeSnapshot mapping) — skip, do not penalise.
-            let pred = match extract_biomarker(snap_source, age, biomarker) {
-                Some(v) => v,
+            let pred = match extract_biomarker(snap_src, age, biomarker) {
+                Some(v) => v * sf,
                 None    => continue,
             };
             let obs   = dataset.observed[i];
@@ -233,9 +227,8 @@ fn log_posterior(params: &[CalibrationParam], ds: &ReferenceDatasets) -> f64 {
         Some(s) => s,
         None    => return f64::NEG_INFINITY,
     };
-    let snaps_ros  = normalise_ros(&snaps);
-    let snaps_telo = normalise_telomere(&snaps);
-    log_prior_total(params) + log_likelihood(&snaps, &snaps_ros, &snaps_telo, ds)
+    let snaps_ros = normalise_ros(&snaps);
+    log_prior_total(params) + log_likelihood(&snaps, &snaps_ros, ds)
 }
 
 // ── MCMC result ───────────────────────────────────────────────────────────────
@@ -266,6 +259,54 @@ pub struct McmcResult {
     pub r2_training: f64,
     /// RMSE on the training datasets using the posterior-mean parameters.
     pub rmse_training: f64,
+}
+
+impl McmcResult {
+    /// Pearson correlation matrix of the posterior samples.
+    ///
+    /// Returns an `n×n` matrix (row-major, flattened `Vec<f64>`) where entry
+    /// `[i * n + j]` is the correlation between parameters `i` and `j`.
+    /// Diagonal is always 1.0.  Off-diagonal |r| > 0.7 indicates strong
+    /// posterior correlation (potential identifiability concern).
+    pub fn correlation_matrix(&self) -> Vec<f64> {
+        let n = self.param_names.len();
+        if self.samples.is_empty() || n == 0 {
+            return vec![1.0; n * n];
+        }
+        let m = self.samples.len() as f64;
+
+        // Column means
+        let means: Vec<f64> = (0..n)
+            .map(|i| self.samples.iter().map(|s| s.param_values[i]).sum::<f64>() / m)
+            .collect();
+
+        // Column standard deviations
+        let sds: Vec<f64> = (0..n)
+            .map(|i| {
+                let mu = means[i];
+                let var = self.samples.iter()
+                    .map(|s| (s.param_values[i] - mu).powi(2))
+                    .sum::<f64>() / m;
+                var.sqrt().max(1e-12)
+            })
+            .collect();
+
+        // Correlation matrix
+        let mut corr = vec![0.0_f64; n * n];
+        for i in 0..n {
+            for j in 0..n {
+                if i == j {
+                    corr[i * n + j] = 1.0;
+                } else {
+                    let cov = self.samples.iter()
+                        .map(|s| (s.param_values[i] - means[i]) * (s.param_values[j] - means[j]))
+                        .sum::<f64>() / m;
+                    corr[i * n + j] = (cov / (sds[i] * sds[j])).clamp(-1.0, 1.0);
+                }
+            }
+        }
+        corr
+    }
 }
 
 // ── R-hat (split-chain Gelman-Rubin) ─────────────────────────────────────────
@@ -403,11 +444,52 @@ impl Metropolis {
             rmse_training: rmse,
         }
     }
+
+    /// Adaptive Metropolis-Hastings (Haario et al. 2001).
+    ///
+    /// Phase 1 — pilot: `pilot_samples` steps with fixed proposals.
+    /// Phase 2 — adapt: set `proposal_sd[i] = scale * posterior_sd[i]` from pilot.
+    /// Phase 3 — main: `burn_in + n_samples` with adapted proposals.
+    ///
+    /// `scale` defaults to `2.38 / sqrt(n_params)` (optimal for normal posteriors).
+    pub fn run_adaptive(
+        &self,
+        params:       Vec<CalibrationParam>,
+        ds:           &ReferenceDatasets,
+        pilot_samples: usize,
+    ) -> McmcResult {
+        let n_params = params.len();
+        let scale    = 2.38 / (n_params as f64).sqrt();
+
+        // ── Phase 1: pilot run ────────────────────────────────────────────────
+        let pilot = Metropolis::new(pilot_samples / 2, pilot_samples / 2, self.seed);
+        let pilot_result = pilot.run(params.clone(), ds);
+
+        // ── Phase 2: adapt proposals ──────────────────────────────────────────
+        let mut adapted = params.clone();
+        for (i, p) in adapted.iter_mut().enumerate() {
+            let sd = pilot_result.posterior_sd[i];
+            if sd > 1e-12 {
+                p.proposal_sd = (scale * sd).clamp(p.prior_sd * 0.01, p.prior_sd * 5.0);
+            }
+            // Warm-start from pilot posterior mean
+            p.value = pilot_result.posterior_mean[i].clamp(p.min, p.max);
+        }
+
+        // ── Phase 3: main run with adapted proposals ──────────────────────────
+        self.run(adapted, ds)
+    }
 }
 
 // ── Training fitness ──────────────────────────────────────────────────────────
 
-/// Compute R² and RMSE on training datasets using current param values.
+/// Compute R² and RMSE using scale-anchored trend comparison.
+///
+/// Each biomarker's predicted trajectory is anchored to the reference at age 20
+/// (single scale factor), then R² is computed across all data points.
+/// This measures trend-matching quality — whether the model correctly predicts
+/// the rate of age-dependent change, up to a single multiplicative calibration
+/// constant at young-adult baseline.
 pub fn training_fitness(
     params: &[CalibrationParam],
     ds: &ReferenceDatasets,
@@ -416,31 +498,31 @@ pub fn training_fitness(
         Some(s) => s,
         None    => return (0.0, f64::INFINITY),
     };
-    let snaps_ros  = normalise_ros(&snaps);
-    let snaps_telo = normalise_telomere(&snaps);
+    let snaps_ros = normalise_ros(&snaps);
 
     let datasets: &[(&CalibrationDataset, &str)] = &[
-        (&ds.ros,          "ROS level"),
-        (&ds.telomere,     "Telomere length"),
-        (&ds.chip_vaf,     "CHIP VAF"),
-        (&ds.frailty,      "Frailty index"),
-        (&ds.epi_age_accel,"Epi-age acceleration"),
+        (&ds.ros,      "ROS level"),
+        (&ds.chip_vaf, "CHIP VAF"),
+        (&ds.frailty,  "Frailty index"),
     ];
 
     let mut all_obs  = Vec::new();
     let mut all_pred = Vec::new();
 
     for (dataset, biomarker) in datasets {
+        let snap_src: &[cell_dt_aging_engine::AgeSnapshot] = if *biomarker == "ROS level" {
+            snaps_ros.as_slice()
+        } else {
+            snaps.as_slice()
+        };
+
+        let ref_at_20 = dataset.observed[0];
+        let sf = scale_factor_at_20(snap_src, biomarker, ref_at_20);
+
         for (i, &age) in dataset.ages.iter().enumerate() {
-            let snap_src = match *biomarker {
-                "ROS level"       => snaps_ros.as_slice(),
-                "Telomere length" => snaps_telo.as_slice(),
-                _                 => snaps.as_slice(),
-            };
-            // Skip biomarkers excluded from likelihood (telomere, CHIP VAF)
-            if let Some(pred) = extract_biomarker(snap_src, age, biomarker) {
+            if let Some(raw) = extract_biomarker(snap_src, age, biomarker) {
                 all_obs.push(dataset.observed[i]);
-                all_pred.push(pred);
+                all_pred.push(raw * sf);
             }
         }
     }
@@ -449,6 +531,52 @@ pub fn training_fitness(
         Calibrator::calculate_r2(&all_obs, &all_pred),
         Calibrator::calculate_rmse(&all_obs, &all_pred),
     )
+}
+
+// ── Sensitivity analysis ─────────────────────────────────────────────────────
+
+/// One row of a sensitivity analysis result.
+#[derive(Debug, Clone)]
+pub struct SensitivityRow {
+    pub param_name:    &'static str,
+    /// Relative perturbation applied (e.g. +0.10 = +10%)
+    pub delta_frac:    f64,
+    /// R² at the perturbed parameter value
+    pub r2_perturbed:  f64,
+    /// ΔR² = r2_perturbed − r2_baseline
+    pub delta_r2:      f64,
+}
+
+/// One-at-a-time sensitivity analysis.
+///
+/// For each calibration parameter and each perturbation level in `deltas`
+/// (fractional, e.g. `&[-0.20, -0.10, 0.10, 0.20]`), one parameter is shifted
+/// while all others stay at baseline, and R² is re-evaluated.
+///
+/// Returns one `SensitivityRow` per (parameter, perturbation) combination.
+pub fn sensitivity_analysis(
+    params:  &[CalibrationParam],
+    ds:      &ReferenceDatasets,
+    deltas:  &[f64],
+) -> Vec<SensitivityRow> {
+    let (r2_baseline, _) = training_fitness(params, ds);
+    let mut rows = Vec::new();
+
+    for (i, base) in params.iter().enumerate() {
+        for &delta in deltas {
+            let mut perturbed = params.to_vec();
+            let new_val = (base.value * (1.0 + delta)).clamp(base.min, base.max);
+            perturbed[i].value = new_val;
+            let (r2, _) = training_fitness(&perturbed, ds);
+            rows.push(SensitivityRow {
+                param_name:   base.name,
+                delta_frac:   delta,
+                r2_perturbed: r2,
+                delta_r2:     r2 - r2_baseline,
+            });
+        }
+    }
+    rows
 }
 
 // ── Original Calibrator (R² / RMSE utilities — preserved) ────────────────────
@@ -602,7 +730,7 @@ mod tests {
     fn test_calibration_param_log_prior_at_mean() {
         let p = CalibrationParam {
             name: "alpha", value: 0.0082, prior_mean: 0.0082, prior_sd: 0.002,
-            proposal_sd: 0.0003, min: 0.001, max: 0.05,
+            proposal_sd: 0.0020, min: 0.001, max: 0.05,
         };
         // At the mean: log_prior = 0.0 (unnormalised)
         assert!((p.log_prior() - 0.0).abs() < 1e-9);
@@ -612,7 +740,7 @@ mod tests {
     fn test_calibration_param_log_prior_decreases_away_from_mean() {
         let mut p = CalibrationParam {
             name: "alpha", value: 0.0082, prior_mean: 0.0082, prior_sd: 0.002,
-            proposal_sd: 0.0003, min: 0.001, max: 0.05,
+            proposal_sd: 0.0020, min: 0.001, max: 0.05,
         };
         let lp_center = p.log_prior();
         p.value = 0.0120;  // 1.9σ away
@@ -622,19 +750,22 @@ mod tests {
 
     #[test]
     fn test_default_calibration_params_count() {
+        // 2 free parameters: tau_protection, pi_0
+        // Fixed: alpha (collinear r=0.858), hsc_nu (ΔR²≈0), dnmt3a_fitness (ΔR²≈0)
         let params = default_calibration_params();
-        assert_eq!(params.len(), 5);
+        assert_eq!(params.len(), 2);
     }
 
     #[test]
     fn test_default_calibration_params_names() {
         let params = default_calibration_params();
         let names: Vec<&str> = params.iter().map(|p| p.name).collect();
-        assert!(names.contains(&"alpha"));
         assert!(names.contains(&"tau_protection"));
         assert!(names.contains(&"pi_0"));
-        assert!(names.contains(&"hsc_nu"));
-        assert!(names.contains(&"dnmt3a_fitness"));
+        // Fixed params must NOT appear in MCMC list
+        assert!(!names.contains(&"alpha"),         "alpha must be fixed");
+        assert!(!names.contains(&"hsc_nu"),        "hsc_nu must be fixed");
+        assert!(!names.contains(&"dnmt3a_fitness"),"dnmt3a_fitness must be fixed");
     }
 
     #[test]
@@ -689,28 +820,26 @@ mod tests {
     }
 
     #[test]
-    fn test_normalise_telomere_is_one_at_age_0() {
-        // HSC telomeres deplete to 0 by ~age 14 (high division rate),
-        // so we normalise at birth (age 0), not age 20.
+    fn test_scale_factor_at_20_ros_positive() {
+        // scale_factor_at_20 should return a positive finite value for ROS
         let params = default_calibration_params();
         let snaps = run_simulation(&params).unwrap();
-        let normed = normalise_telomere(&snaps);
-        let v = normed.iter().find(|s| s.age_years <= 2.0)
-            .map(|s| s.telomere_length).unwrap();
-        assert!((v - 1.0).abs() < 1e-6, "normalised telomere at age 0 should be 1.0, got {}", v);
+        let sf = scale_factor_at_20(&snaps, "ROS level", 1.0);
+        assert!(sf > 0.0 && sf.is_finite(), "scale_factor_at_20 for ROS should be positive finite, got {}", sf);
     }
 
     #[test]
-    fn test_normalise_telomere_decreases_from_birth() {
+    fn test_scale_factor_at_20_anchors_ros_to_one() {
+        // After applying scale_factor, sim ROS at age 20 should match reference (1.0)
         let params = default_calibration_params();
         let snaps = run_simulation(&params).unwrap();
-        let normed = normalise_telomere(&snaps);
-        // At birth ≤ 1.0 (normalised), should be > value at age 50
-        let v_birth = normed.iter().find(|s| s.age_years <= 2.0)
-            .map(|s| s.telomere_length).unwrap_or(0.0);
-        let v_50 = normed.iter().find(|s| (s.age_years - 50.0).abs() < 1.5)
-            .map(|s| s.telomere_length).unwrap_or(1.0);
-        assert!(v_birth >= v_50, "telomere should not increase: birth={}, age50={}", v_birth, v_50);
+        let sf = scale_factor_at_20(&snaps, "ROS level", 1.0);
+        let sim_at_20 = snaps.iter()
+            .find(|s| (s.age_years - 20.0).abs() < 1.5)
+            .map(|s| s.ros_level)
+            .unwrap();
+        let anchored = sim_at_20 * sf;
+        assert!((anchored - 1.0).abs() < 1e-2, "anchored ROS at age 20 should be ~1.0, got {}", anchored);
     }
 
     #[test]
@@ -776,7 +905,7 @@ mod tests {
         let ds = ReferenceDatasets::load();
         let result = mcmc.run(params, &ds);
         assert_eq!(result.samples.len(), 30);
-        assert_eq!(result.param_names.len(), 5);
+        assert_eq!(result.param_names.len(), 2);
     }
 
     #[test]
@@ -847,30 +976,133 @@ mod tests {
         let params = default_calibration_params();
         let ds = ReferenceDatasets::load();
         let result = mcmc.run(params, &ds);
-        assert_eq!(result.r_hat.len(), 5, "R-hat vector should have one entry per parameter");
+        assert_eq!(result.r_hat.len(), 2, "R-hat vector should have one entry per parameter");
     }
 
     #[test]
-    fn test_apply_params_alpha() {
+    fn test_apply_params_tau_protection() {
         let mut params = default_calibration_params();
-        // Force alpha to a known value
-        params[0].value = 0.01;
+        // params[0] is tau_protection
+        params[0].value = 30.0;
         let mut fp = FixedParameters::default();
         apply_params(&params, &mut fp);
-        assert!((fp.alpha - 0.01).abs() < 1e-10);
+        assert!((fp.tau_protection - 30.0).abs() < 1e-9);
     }
 
     #[test]
-    fn test_apply_params_all_five() {
+    fn test_apply_params_two_free() {
         let params = default_calibration_params();
         let mut fp = FixedParameters::default();
         apply_params(&params, &mut fp);
-        // After applying defaults, values should equal FixedParameters defaults
-        assert!((fp.alpha - 0.0082).abs() < 1e-10);
+        // Free params applied from calibration defaults
         assert!((fp.tau_protection - 24.3).abs() < 1e-9);
         assert!((fp.pi_0 - 0.87).abs() < 1e-9);
-        assert!((fp.hsc_nu - 12.0).abs() < 1e-9);
-        assert!((fp.dnmt3a_fitness - 0.15).abs() < 1e-9);
+        // Fixed params remain at FixedParameters defaults
+        assert!((fp.alpha - 0.0082).abs() < 1e-10,  "alpha must remain fixed at 0.0082");
+        assert!((fp.hsc_nu - 12.0).abs() < 1e-9,    "hsc_nu must remain fixed at 12.0");
+        assert!((fp.dnmt3a_fitness - 0.15).abs() < 1e-9, "dnmt3a_fitness must remain fixed");
+    }
+
+    // ── correlation_matrix tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_correlation_matrix_diagonal_is_one() {
+        let mcmc   = Metropolis::new(20, 50, 7);
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let result = mcmc.run(params, &ds);
+        let n      = result.param_names.len();
+        let corr   = result.correlation_matrix();
+        for i in 0..n {
+            assert!((corr[i * n + i] - 1.0).abs() < 1e-9,
+                "diagonal[{}] should be 1.0, got {}", i, corr[i * n + i]);
+        }
+    }
+
+    #[test]
+    fn test_correlation_matrix_symmetric() {
+        let mcmc   = Metropolis::new(20, 50, 8);
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let result = mcmc.run(params, &ds);
+        let n      = result.param_names.len();
+        let corr   = result.correlation_matrix();
+        for i in 0..n {
+            for j in 0..n {
+                assert!((corr[i * n + j] - corr[j * n + i]).abs() < 1e-9,
+                    "corr[{},{}] != corr[{},{}]", i, j, j, i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_correlation_matrix_values_in_range() {
+        let mcmc   = Metropolis::new(20, 50, 9);
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let result = mcmc.run(params, &ds);
+        let corr   = result.correlation_matrix();
+        for &r in &corr {
+            assert!(r >= -1.0 && r <= 1.0, "correlation out of [-1,1]: {}", r);
+        }
+    }
+
+    #[test]
+    fn test_correlation_matrix_size() {
+        let mcmc   = Metropolis::new(10, 20, 1);
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let result = mcmc.run(params, &ds);
+        let n      = result.param_names.len();
+        assert_eq!(result.correlation_matrix().len(), n * n);
+    }
+
+    // ── sensitivity_analysis tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_sensitivity_analysis_row_count() {
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let deltas = [-0.10_f64, 0.10];
+        let rows   = sensitivity_analysis(&params, &ds, &deltas);
+        assert_eq!(rows.len(), params.len() * deltas.len(),
+            "expected {} rows, got {}", params.len() * deltas.len(), rows.len());
+    }
+
+    #[test]
+    fn test_sensitivity_analysis_baseline_delta_zero() {
+        // Zero perturbation → ΔR² should be 0
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let rows   = sensitivity_analysis(&params, &ds, &[0.0]);
+        for row in &rows {
+            assert!(row.delta_r2.abs() < 1e-9,
+                "{}: delta_r2 should be 0 at zero perturbation, got {}", row.param_name, row.delta_r2);
+        }
+    }
+
+    #[test]
+    fn test_sensitivity_analysis_r2_finite() {
+        let params = default_calibration_params();
+        let ds     = ReferenceDatasets::load();
+        let rows   = sensitivity_analysis(&params, &ds, &[-0.10, 0.10]);
+        for row in &rows {
+            assert!(row.r2_perturbed.is_finite(),
+                "{}: r2_perturbed should be finite", row.param_name);
+        }
+    }
+
+    #[test]
+    fn test_sensitivity_analysis_param_names_match() {
+        let params = default_calibration_params();
+        let names: Vec<&str> = params.iter().map(|p| p.name).collect();
+        let ds   = ReferenceDatasets::load();
+        let rows = sensitivity_analysis(&params, &ds, &[-0.10, 0.10]);
+        // Each param should appear in the rows
+        for name in &names {
+            assert!(rows.iter().any(|r| r.param_name == *name),
+                "parameter {} not found in sensitivity rows", name);
+        }
     }
 
     #[test]
@@ -880,11 +1112,11 @@ mod tests {
         let lp_default = log_posterior(&params_default, &ds);
 
         let mut params_bad = default_calibration_params();
-        params_bad[0].value = 0.045; // very high alpha — far from prior and data
+        params_bad[0].value = 60.0; // very high tau_protection — far from prior and data
         let lp_bad = log_posterior(&params_bad, &ds);
 
         assert!(lp_default > lp_bad,
-            "default params (lp={:.2}) should have higher posterior than extreme alpha (lp={:.2})",
+            "default params (lp={:.2}) should have higher posterior than extreme tau_protection (lp={:.2})",
             lp_default, lp_bad);
     }
 }

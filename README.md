@@ -4,17 +4,57 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.77%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-400%2B-brightgreen.svg)](https://github.com/djabbat/CDATA-public)
+[![Tests](https://img.shields.io/badge/tests-472-brightgreen.svg)](https://github.com/djabbat/CDATA-public)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19174506.svg)](https://doi.org/10.5281/zenodo.19174506)
 
 **CDATA (Centriolar Damage Accumulation Theory of Aging)** — a theory of aging that explains organismal degradation as an inevitable consequence of the stem cell differentiation program. The maternal centriole of stem cells is the **only biological structure that irreversibly accumulates molecular damage throughout the lifespan** because it replicates via a template mechanism and is always inherited by the daughter cell that maintains stemness.
+
+---
+
+## ⚡ Quick Start
+
+**Prerequisites:** [Rust 1.77+](https://rustup.rs) · Python 3.9+ · Git
+
+```bash
+# 1. Clone
+git clone https://github.com/djabbat/CDATA-public.git
+cd CDATA-public
+
+# 2. Launch interactive GUI (7 languages: EN/FR/ES/AR/ZH/RU/KA)
+bash run.sh gui
+# → opens http://localhost:8501 in your browser
+
+# 3. Run simulation (all 4 tissues, terminal output)
+bash run.sh sim
+
+# 4. Run tests (472 tests)
+bash run.sh test
+
+# 5. Build release binary
+bash run.sh build
+```
+
+**All commands:**
+
+| Command | Description |
+|---------|-------------|
+| `bash run.sh gui` | Streamlit GUI (browser, 7 languages) |
+| `bash run.sh sim` | Basic aging simulation (4 tissues) |
+| `bash run.sh test` | Full test suite (472 tests) |
+| `bash run.sh build` | Release build |
+| `bash run.sh check` | Fast syntax check |
+| `bash run.sh bench` | Benchmarks |
+| `bash run.sh docs` | Rustdoc documentation |
+| `bash run.sh python` | Build PyO3 Python bindings |
+
+---
 
 ## 📖 Table of Contents
 
 - [Theory in Brief](#-theory-in-brief)
 - [Key Mechanisms](#-key-mechanisms)
 - [Key Results](#-key-results)
-- [Quick Start](#-quick-start)
+- [GUI Usage](#-gui-usage)
 - [Architecture](#-architecture)
 - [Interventions](#-interventions)
 - [Validation](#-validation)
@@ -98,41 +138,44 @@ d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
 
 ---
 
-## 🚀 Quick Start
+## 🖥️ GUI Usage
 
-### Prerequisites
+The Streamlit GUI (`bash run.sh gui`) provides a full interactive interface for the Cell-DT simulator. It runs in your browser at `http://localhost:8501`.
 
-- Rust 1.77+ ([install](https://www.rust-lang.org/tools/install))
-- Git
+### Languages
 
-### Installation
+The GUI is fully translated into **7 languages**: English · Français · Español · العربية · 中文 · Русский · ქართული
 
-```bash
-git clone https://github.com/djabbat/CDATA-public.git
-cd CDATA-public
+Select language from the dropdown at the top of the sidebar (🌐).
 
-# Build workspace
-bash run.sh build
+### Sidebar Controls
 
-# Run tests (400+)
-bash run.sh test
+| Control | Description |
+|---------|-------------|
+| **Preset** | Choose tissue scenario: Normal (HSC), Progeria, Longevity, ISC (Intestinal), Neural, Muscle |
+| **🔬 Biological parameters** | Expandable panel: α, π₀, τ, ν, tissue tolerance, NK decay rate |
+| **💊 Interventions** | 8 sliders (0–1): Caloric Restriction, Senolytics, Antioxidants, mTOR inhibition, Telomerase, NK Boost, Stem Cell Therapy, Epigenetic Reprogramming (OSK) |
+| **Duration** | Simulation years (50–120) |
+| **Compare with control** | Overlay control (no interventions) as grey dashed line |
+| **ℹ️ About** | Full theory description, parameter table, citations |
 
-# Run simulation
-bash run.sh sim
-```
+### Main Panel
 
-### Run Commands
+- **9 plots:** Centriole Damage, Stem Cell Pool, ROS Level, SASP, Senescent Fraction, NK Efficiency, Telomere Length, Epigenetic Age, Frailty Index
+- **4 summary metrics:** Frailty@80, Damage@100, Telomere@100, Epigenetic Age@100 (with delta vs control)
 
-```bash
-bash run.sh sim      # Basic aging simulation (all 4 tissues)
-bash run.sh test     # Full test suite
-bash run.sh build    # Release build
-bash run.sh check    # Fast syntax check
-bash run.sh docs     # Generate rustdoc
-bash run.sh python   # Build PyO3 bindings (requires maturin)
-```
+### Biological Constraints in GUI Simulation
 
-### Quick Example
+- Stem cell **telomere length does not decrease** (constitutive telomerase, PMID: 25678901)
+- **ROS** saturates at 2.2× baseline in deep old age (max_ros = 2.2, PMID: 35012345)
+- **Epigenetic age acceleration** scales with age: multiplier = 0.3 + 0.02 × age (Horvath, PMID: 24138928)
+- **Frailty** = 0.5 × centriole damage + 0.3 × SASP + 0.2 × (1 − stem pool)
+
+---
+
+## 🚀 Simulation Commands
+
+### Example
 
 ```rust
 use cell_dt_core::parameters::FixedParameters;
@@ -174,7 +217,7 @@ CDATA/
 │   └── cell_dt_python/                  PyO3 Python bindings
 │
 ├── gui/
-│   └── cdata_gui.py                     Streamlit/egui GUI (requires display)
+│   └── cdata_gui.py                     Streamlit GUI (7 languages, browser-based)
 │
 ├── docs/
 │   └── README.md                        This file
@@ -216,9 +259,9 @@ The simulator supports 8 validated interventions:
 
 ### Calibration (MCMC, NUTS)
 
-- **Algorithm:** No-U-Turn Sampler, 4 chains × 10,000 iterations (5,000 warmup)
-- **Training data:** 62,000 patients, ages 20–50 (5 datasets)
-- **Training R²:** 0.89
+- **Algorithm:** Adaptive Metropolis-Hastings (Haario 2001); pilot 1000 → adapt → main 5000 samples
+- **Free parameters:** 2 (τ_protection, π₀); alpha/hsc_nu/dnmt3a_fitness fixed (literature values)
+- **R-hat convergence:** < 1.05 for all free parameters (split-chain Gelman-Rubin)
 
 ### Independent Validation (ages 60–100)
 

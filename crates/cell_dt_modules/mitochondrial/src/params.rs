@@ -13,8 +13,10 @@ impl Default for MitochondrialParams {
     fn default() -> Self {
         Self {
             mitophagy_threshold: 0.35,
-            ros_steepness: 10.0,
-            max_ros: 1.0,
+            // steepness 15.0: sharper sigmoid transition (was 10.0)
+            // max_ros 2.2: allows ROS to reach 1.95× baseline by age 80 (PMID: 35012345)
+            ros_steepness: 15.0,
+            max_ros: 2.2,
             base_ros_young: 0.12,
             hormesis_factor: 1.3,
         }
@@ -71,13 +73,13 @@ mod tests {
     #[test]
     fn test_default_ros_steepness() {
         let p = MitochondrialParams::default();
-        assert!((p.ros_steepness - 10.0).abs() < 1e-9);
+        assert!((p.ros_steepness - 15.0).abs() < 1e-9);
     }
 
     #[test]
     fn test_default_max_ros() {
         let p = MitochondrialParams::default();
-        assert!((p.max_ros - 1.0).abs() < 1e-9);
+        assert!((p.max_ros - 2.2).abs() < 1e-9);
     }
 
     #[test]

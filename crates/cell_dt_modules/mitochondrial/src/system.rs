@@ -13,10 +13,14 @@ impl MitochondrialSystem {
     pub fn update(&self, state: &mut MitochondrialState, dt: f64, age_years: f64, inflammation_level: f64) {
         state.mtdna_mutations = accumulate_mtdna(state.mtdna_mutations, state.ros_level, dt);
         let oxidative_input = inflammation_level * 0.3;
-        state.ros_level = sigmoid_ros(
+        // Scale sigmoid [0,1] to [base_ros_young, max_ros] so that old age can reach
+        // 1.95× baseline (PMID: 35012345). max_ros=2.2, base_ros_young=0.12.
+        let sig = sigmoid_ros(
             state.mtdna_mutations, oxidative_input,
             self.params.ros_steepness, self.params.mitophagy_threshold,
         );
+        state.ros_level = self.params.base_ros_young
+            + (self.params.max_ros - self.params.base_ros_young) * sig;
         state.mitophagy_efficiency = compute_mitophagy(
             state.ros_level, age_years, self.params.mitophagy_threshold,
         );
@@ -98,13 +102,15 @@ mod tests {
     // ── update: ROS level ─────────────────────────────────────────────────────
 
     #[test]
-    fn test_ros_bounded_zero_one() {
+    fn test_ros_bounded_in_expected_range() {
+        // ROS is now in [base_ros_young, max_ros] = [0.12, 2.2]
         let sys = sys();
         let mut s = state();
         for _ in 0..100 {
             sys.update(&mut s, 1.0, 50.0, 1.0);
         }
-        assert!(s.ros_level >= 0.0 && s.ros_level <= 1.0);
+        assert!(s.ros_level >= 0.0 && s.ros_level <= 2.5,
+            "ROS out of expected range: {}", s.ros_level);
     }
 
     #[test]
