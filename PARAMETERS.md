@@ -3,7 +3,8 @@
 **Source of truth:** `crates/cell_dt_core/src/fixed_params.rs` → `FixedParameters::default()`
 **Total parameters:** 32 (reduced from 120 after 5 rounds of peer review)
 **Calibration:** MCMC / NUTS on 62,000 patient records, ages 20–50
-**Validation R²:** 0.84 (frailty + mortality + epigenetic clock)
+**Validation R²:** 0.84 (independent validation: frailty + mortality + epigenetic clock)
+**Training R²:** 0.98 (scale-anchored, MCMC calibration cohort 20–50 yr) — use 0.84 in all publications and grant materials
 
 ---
 

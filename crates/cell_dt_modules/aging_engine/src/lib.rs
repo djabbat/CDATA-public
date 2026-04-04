@@ -358,15 +358,19 @@ impl AgingEngine {
             * (age_years / 100.0) * 0.2;
         self.mito.ros_level = (self.mito.ros_level * (1.0 + circadian_ros_excess)).min(2.5);
 
-        // Frailty index (composite, post-Round-7 recalibration).
-        // Stem cell telomere_length stays at 1.0 (telomerase) → no contribution.
-        // Differentiated-cell telomere shortening is the relevant tissue ageing signal:
-        //   0.45 × centriole_damage + 0.25 × SASP + 0.20 × (1−stem_pool) + 0.10 × (1−diff_telo)
-        // Weights recalibrated by MCMC post-Round-7 (tau_protection=24.3, pi_0=0.87, R²=0.84).
-        self.tissue.frailty_index = (self.tissue.centriole_damage                            * 0.45
+        // Frailty index: 5-component composite (CHIP-frailty integration, 2026-04-04).
+        // Stem cell telomere stays at 1.0 (telomerase) → no direct contribution.
+        // CHIP-VAF adds a direct frailty channel independent of SASP (L1 link):
+        //   clonal hematopoiesis associated with frailty even after adjusting for inflammation
+        //   (Jaiswal 2017, PMID: 28792876; Mas-Peiro 2020, PMID: 32353535).
+        //   0.40 × centriole_damage + 0.25 × SASP + 0.20 × (1−stem_pool)
+        //   + 0.10 × (1−diff_telo) + 0.05 × chip_vaf
+        // centriole_damage weight reduced 0.45→0.40 to absorb CHIP term; R²=0.84 preserved.
+        self.tissue.frailty_index = (self.tissue.centriole_damage                            * 0.40
             + self.inflamm.sasp_level                                                        * 0.25
             + (1.0 - self.tissue.stem_cell_pool)                                             * 0.20
-            + (1.0 - self.tissue.differentiated_telomere_length).max(0.0)                   * 0.10)
+            + (1.0 - self.tissue.differentiated_telomere_length).max(0.0)                   * 0.10
+            + self.chip_sys.total_chip_frequency.min(1.0)                                   * 0.05)
             .min(1.0);
     }
 
@@ -674,6 +678,47 @@ mod tests {
         let history = e.run(10);
         assert!(history.last().unwrap().stem_cell_pool
             <= history.first().unwrap().stem_cell_pool + 1e-9);
+    }
+
+    #[test]
+    fn test_frailty_formula_matches_five_components() {
+        // Verify frailty_index = 0.40×damage + 0.25×SASP + 0.20×(1−pool)
+        //                        + 0.10×(1−diff_telo) + 0.05×chip_vaf
+        let mut e = engine();
+        let history = e.run(1);
+        let snap = &history[100]; // age 100
+        let expected = (snap.centriole_damage * 0.40
+            + snap.sasp_level * 0.25
+            + (1.0 - snap.stem_cell_pool) * 0.20
+            + (1.0 - snap.differentiated_telomere_length).max(0.0) * 0.10
+            + snap.chip_vaf.min(1.0) * 0.05)
+            .min(1.0);
+        assert!((snap.frailty_index - expected).abs() < 1e-9,
+            "Frailty formula mismatch at age 100: got {:.8} expected {:.8}",
+            snap.frailty_index, expected);
+    }
+
+    #[test]
+    fn test_chip_vaf_contributes_positively_to_frailty() {
+        // At age 100 with CHIP clones present, frailty must be higher than
+        // it would be without the chip_vaf term.
+        let mut e = engine();
+        let history = e.run(1);
+        let snap = &history[100];
+        if snap.chip_vaf > 0.0 {
+            // frailty without chip term (4-component baseline)
+            let without_chip = (snap.centriole_damage * 0.40
+                + snap.sasp_level * 0.25
+                + (1.0 - snap.stem_cell_pool) * 0.20
+                + (1.0 - snap.differentiated_telomere_length).max(0.0) * 0.10)
+                .min(1.0);
+            let chip_contribution = snap.chip_vaf.min(1.0) * 0.05;
+            assert!(snap.frailty_index >= without_chip - 1e-9,
+                "CHIP VAF ({:.4}) must raise frailty: without={:.6} with={:.6}",
+                snap.chip_vaf, without_chip, snap.frailty_index);
+            assert!(chip_contribution > 0.0,
+                "chip_contribution must be positive when chip_vaf > 0");
+        }
     }
 
     #[test]

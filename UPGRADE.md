@@ -62,7 +62,7 @@ R-hat < 1.05 achieved for both.
 ---
 
 ## [2026-03-29] GUI: 7-language support (EN/FR/ES/AR/ZH/RU/KA)
-**Source:** EIC Pathfinder internationalization requirements + user request
+**Source:** Internationalization requirements + user request
 **Status:** [✓ approved 2026-03-29] [✓✓ implemented 2026-03-29]
 
 Full Streamlit GUI rewritten with T[lang][key] translation dict.
@@ -112,9 +112,12 @@ MCMC posteriors: τ_protection=24.3 (CI 19.1–29.7), π₀=0.87 (CI 0.82–0.92
 New example `circadian_validation.rs` confirms R²≥0.80 for amplitude decline trajectory.
 Model: amplitude decreases ~5%/decade; observed: ~5%/decade. ✅
 
-### [ ] CHIP frailty integration
-**Source:** Jaiswal 2017 (PMID: 28792876): CHIP VAF correlates with frailty
-**Status:** [ ] proposed
+## [2026-04-04] CHIP frailty integration
+**Source:** Jaiswal 2017 (PMID: 28792876): CHIP VAF correlates with frailty independent of SASP
+**Status:** [✓ approved 2026-04-04] [✓✓ implemented 2026-04-04]
 
-Add `chip_vaf` as a direct contributor to frailty_index (small weight ~0.05).
-Currently CHIP only affects SASP via L1 link.
+Added `chip_vaf × 0.05` as a direct frailty component (5th term).
+centriole_damage weight reduced 0.45→0.40 to keep weights summing to 1.0.
+CHIP now has two pathways to frailty: L1 (→SASP) and direct (→frailty_index).
+Biological basis: Mas-Peiro 2020 (PMID: 32353535) — CHIP independently predicts frailty.
+2 new tests: `test_frailty_formula_matches_five_components`, `test_chip_vaf_contributes_positively_to_frailty`.

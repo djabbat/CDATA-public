@@ -4,7 +4,7 @@
 
 **CDATA** — Centriolar Damage Accumulation Theory of Aging
 **Cell-DT** — Digital Twin Simulator of Human Aging
-**Version:** 3.0 | **Status:** R²=0.84 validated | **EIC Pathfinder deadline: 10 May 2026**
+**Version:** 3.0 | **Status:** R²=0.84 validated
 **Location:** `~/Desktop/CDATA/`
 **Repos:** private `djabbat/CDATA` · public `djabbat/CDATA-public`
 
@@ -33,7 +33,6 @@ crates/
 
 gui/                          cdata_gui.py (requires display — skipped in headless)
 docs/                         README.md, additional documentation
-Horizon/                      EIC Pathfinder grant (separate sub-project)
 ```
 
 ---

@@ -1,4 +1,4 @@
-# CDATA Cell-DT v3.0
+# CDATA Cell-DT v3.2.3
 
 ## Centriolar Damage Accumulation Theory of Aging — Digital Twin Simulator
 
@@ -120,7 +120,8 @@ d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
 | **Mechanisms** | 8 validated |
 | **Tissues** | 4 (HSC, ISC, Muscle, Neural) |
 | **Tests** | 483 unit tests |
-| **Validation R²** | 0.84 (frailty, mortality, CHIP, epigenetic clock) |
+| **Frailty Index** | 5-component: centriole×0.40 + SASP×0.25 + stem pool×0.20 + telomere×0.10 + CHIP×0.05 |
+| **Validation R²** | 0.84 independent (frailty, mortality, CHIP, epigenetic clock) |
 | **Blind Prediction Δ** | 1.6 years (Italian Centenarians, n=500) |
 | **CHIP Prediction R²** | 0.79 |
 | **Epigenetic Clock R²** | 0.91 |
