@@ -1,7 +1,7 @@
 /// CDATA v3.0 — MCMC Calibration example (Task 17 / Task 20)
 ///
 /// Runs Metropolis-Hastings calibration against reference datasets
-/// (ROS, telomere, CHIP VAF, frailty, epigenetic age) and reports:
+/// (ROS, telomere, CHIP VAF, MCAI, epigenetic age) and reports:
 ///  - Posterior mean ± SD for 5 key parameters
 ///  - Acceptance rate and R-hat convergence diagnostics
 ///  - Training R² and RMSE
@@ -20,7 +20,7 @@ fn main() {
         (&ds.ros.name,          ds.ros.ages.len()),
         (&ds.telomere.name,     ds.telomere.ages.len()),
         (&ds.chip_vaf.name,     ds.chip_vaf.ages.len()),
-        (&ds.frailty.name,      ds.frailty.ages.len()),
+        (&ds.mcai.name,      ds.mcai.ages.len()),
         (&ds.epi_age_accel.name,ds.epi_age_accel.ages.len()),
     ] {
         println!("  {:<25} {} data points", name, n);

@@ -3,7 +3,7 @@
 /// Layout:
 ///   Left  (200px) — preset + interventions + age cursor
 ///   Center         — 3×3 plots (threshold lines, cursor VLine, baseline vs ivs)
-///   Right (235px)  — values at cursor age, summary at 80, frailty onset
+///   Right (235px)  — values at cursor age, summary at 80, MCAI onset
 
 use eframe::egui::{self, Color32, RichText};
 use egui_plot::{HLine, Line, Plot, PlotPoints, VLine};
@@ -36,8 +36,8 @@ const VARS: [VarMeta; 9] = [
     VarMeta { name:"SASP Level", unit:"0–1",
         description:"Senescence-Associated Secretory Phenotype.\nHormetic: low→stimulates repair; high→inhibits.",
         y_max:1.0, warn:0.35, crit:0.65, bad_is_high:true },
-    VarMeta { name:"Frailty Index", unit:"0–1",
-        description:"Composite: damage×0.4 + SASP×0.3\n+ (1−stem)×0.2 + (1−telo)×0.1.\nClinical threshold ≈ 0.25 (Fried 2001).",
+    VarMeta { name:"MCAI", unit:"0–1",
+        description:"Model Composite Aging Index (v3.2.3).\nUnweighted mean: (D+SASP+(1−pool)+(1−telo)+VAF)/5.\nClinical threshold ≈ 0.25 (Fried 2001).",
         y_max:1.0, warn:0.25, crit:0.50, bad_is_high:true },
     VarMeta { name:"Telomere Length", unit:"fraction",
         description:"Normalized (1=full, 0=critically short).\nLoss: 0.012 × division_rate per year.\nMaster numbers 11/22 preserved.",
@@ -59,7 +59,7 @@ fn extract(s: &AgeSnapshot, i: usize) -> f64 {
         1 => s.stem_cell_pool,
         2 => s.ros_level,
         3 => s.sasp_level,
-        4 => s.frailty_index,
+        4 => s.mcai,
         5 => s.telomere_length,
         6 => s.epigenetic_age,
         7 => s.nk_efficiency,
@@ -275,7 +275,7 @@ impl eframe::App for CdataApp {
                         let i80 = if ivs_active { nearest(&with_ivs, 80.0) } else { None };
 
                         for (field, name) in [
-                            (0usize, "Damage  "), (4, "Frailty "),
+                            (0usize, "Damage  "), (4, "MCAI    "),
                             (5, "Telomere"), (7, "NK Eff. "),
                         ] {
                             let bv = extract(b80, field);
@@ -294,11 +294,11 @@ impl eframe::App for CdataApp {
                     ui.label(RichText::new("▸ Frailty onset (≥ 0.25)").strong());
 
                     let fa_b = baseline.iter()
-                        .find(|s| s.frailty_index >= 0.25)
+                        .find(|s| s.mcai >= 0.25)
                         .map(|s| s.age_years).unwrap_or(100.0);
                     let fa_i = if ivs_active {
                         with_ivs.iter()
-                            .find(|s| s.frailty_index >= 0.25)
+                            .find(|s| s.mcai >= 0.25)
                             .map(|s| s.age_years).unwrap_or(100.0)
                     } else { fa_b };
 
@@ -414,7 +414,7 @@ mod tests {
             stem_cell_pool: scp,
             ros_level: ros,
             sasp_level: sasp,
-            frailty_index: fi,
+            mcai: fi,
             telomere_length: tl,
             differentiated_telomere_length: 1.0,
             epigenetic_age: ea,
@@ -431,7 +431,7 @@ mod tests {
         assert!((extract(&s, 1) - 0.9).abs() < 1e-9);   // stem_cell_pool
         assert!((extract(&s, 2) - 0.2).abs() < 1e-9);   // ros_level
         assert!((extract(&s, 3) - 0.15).abs() < 1e-9);  // sasp_level
-        assert!((extract(&s, 4) - 0.12).abs() < 1e-9);  // frailty_index
+        assert!((extract(&s, 4) - 0.12).abs() < 1e-9);  // mcai
         assert!((extract(&s, 5) - 0.8).abs() < 1e-9);   // telomere_length
         assert!((extract(&s, 6) - 32.0).abs() < 1e-9);  // epigenetic_age
         assert!((extract(&s, 7) - 0.7).abs() < 1e-9);   // nk_efficiency

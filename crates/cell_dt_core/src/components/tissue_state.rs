@@ -6,7 +6,7 @@ pub struct TissueState {
     pub stem_cell_pool: f64,
     pub centriole_damage: f64,
     pub division_count: u64,
-    pub frailty_index: f64,
+    pub mcai: f64,
     pub epigenetic_age: f64,
     /// Stem cell telomere — maintained at 1.0 by constitutive telomerase (PMID: 25678901).
     pub telomere_length: f64,
@@ -22,7 +22,7 @@ impl Default for TissueState {
             stem_cell_pool: 1.0,
             centriole_damage: 0.0,
             division_count: 0,
-            frailty_index: 0.0,
+            mcai: 0.0,
             epigenetic_age: 0.0,
             telomere_length: 1.0,
             differentiated_telomere_length: 1.0,
@@ -36,7 +36,7 @@ impl TissueState {
     }
 
     pub fn is_viable(&self) -> bool {
-        self.stem_cell_pool > 0.05 && self.frailty_index < 0.95
+        self.stem_cell_pool > 0.05 && self.mcai < 0.95
     }
 }
 
@@ -71,9 +71,9 @@ mod tests {
     }
 
     #[test]
-    fn test_default_frailty_zero() {
+    fn test_default_mcai_zero() {
         let s = TissueState::default();
-        assert_eq!(s.frailty_index, 0.0);
+        assert_eq!(s.mcai, 0.0);
     }
 
     #[test]
@@ -109,9 +109,9 @@ mod tests {
     }
 
     #[test]
-    fn test_new_frailty_zero_regardless_of_age() {
+    fn test_new_mcai_zero_regardless_of_age() {
         let s = TissueState::new(90.0);
-        assert_eq!(s.frailty_index, 0.0);
+        assert_eq!(s.mcai, 0.0);
     }
 
     #[test]
@@ -164,31 +164,31 @@ mod tests {
     }
 
     #[test]
-    fn test_not_viable_when_frailty_high() {
+    fn test_not_viable_when_mcai_high() {
         let mut s = TissueState::default();
-        s.frailty_index = 0.96;
-        assert!(!s.is_viable(), "frailty >= 0.95 should be non-viable");
+        s.mcai = 0.96;
+        assert!(!s.is_viable(), "mcai >= 0.95 should be non-viable");
     }
 
     #[test]
-    fn test_viable_frailty_just_below_threshold() {
+    fn test_viable_mcai_just_below_threshold() {
         let mut s = TissueState::default();
-        s.frailty_index = 0.94;
-        assert!(s.is_viable(), "frailty < 0.95 with good pool must be viable");
+        s.mcai = 0.94;
+        assert!(s.is_viable(), "mcai < 0.95 with good pool must be viable");
     }
 
     #[test]
-    fn test_not_viable_frailty_exactly_at_threshold() {
+    fn test_not_viable_mcai_exactly_at_threshold() {
         let mut s = TissueState::default();
-        s.frailty_index = 0.95;
-        assert!(!s.is_viable(), "frailty = 0.95 should be non-viable (strict less than)");
+        s.mcai = 0.95;
+        assert!(!s.is_viable(), "mcai = 0.95 should be non-viable (strict less than)");
     }
 
     #[test]
     fn test_not_viable_both_conditions_bad() {
         let mut s = TissueState::default();
         s.stem_cell_pool = 0.01;
-        s.frailty_index = 0.99;
+        s.mcai = 0.99;
         assert!(!s.is_viable());
     }
 
@@ -203,9 +203,9 @@ mod tests {
     // ── Biological constraints ─────────────────────────────────────────────────
 
     #[test]
-    fn test_frailty_in_range_zero_to_one() {
+    fn test_mcai_in_range_zero_to_one() {
         let s = TissueState::default();
-        assert!(s.frailty_index >= 0.0 && s.frailty_index <= 1.0);
+        assert!(s.mcai >= 0.0 && s.mcai <= 1.0);
     }
 
     #[test]

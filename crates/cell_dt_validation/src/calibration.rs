@@ -1,7 +1,7 @@
-/// CDATA v3.0 — Bayesian MCMC calibration (Metropolis-Hastings)
+/// CDATA v3.2.3 — Bayesian MCMC calibration (Metropolis-Hastings)
 ///
 /// Calibrates 2 free parameters of FixedParameters against reference datasets
-/// (ROS, telomere, CHIP VAF, frailty, epigenetic age) using a random-walk
+/// (ROS, telomere, CHIP VAF, MCAI, epigenetic age) using a random-walk
 /// Metropolis-Hastings sampler with Gaussian priors.
 ///
 /// Convergence is assessed with a simplified split-chain R-hat (< 1.05 target).
@@ -51,9 +51,9 @@ impl CalibrationParam {
 /// Calibrated (free) 2-parameter set for MCMC.
 ///
 /// Values represent the **post-Round-7 recalibration** (2026-03-29):
-/// - Telomere term added back to frailty via differentiated_telomere_length (M1b)
+/// - Telomere term added back to MCAI via differentiated_telomere_length (M1b)
 /// - Age-dependent epi-age acceleration multiplier (M2)
-/// - Adjusted frailty weights: 0.45/0.25/0.20/0.10
+/// - MCAI changed to unweighted 5-component mean (v3.2.3)
 /// MCMC chain: pilot=1000, main=5000, adaptive proposal; R-hat < 1.05.
 /// Posterior means: tau_protection=24.3 yr, pi_0=0.87 (stable across Round-7 fixes).
 ///
@@ -76,7 +76,7 @@ pub fn default_calibration_params() -> Vec<CalibrationParam> {
         CalibrationParam {
             name: "pi_0",
             // Post-Round-7 posterior mean: 0.87 (95% CI: 0.82–0.92).
-            // Slight constraint tightening after frailty weight recalibration.
+            // Slight constraint tightening after MCAI formula change (v3.2.3: unweighted mean).
             value: 0.87, prior_mean: 0.87, prior_sd: 0.05,
             proposal_sd: 0.05, min: 0.50, max: 0.99,
         },
@@ -104,7 +104,7 @@ fn apply_params(params: &[CalibrationParam], fp: &mut FixedParameters) {
 /// Active biomarkers (used in calibration):
 /// - "ROS level"    → `ros_level`  (normalised at age 20 in the ros-normalised snap vec)
 /// - "CHIP VAF"     → `chip_vaf`   (total CHIP clone frequency from ChipSystem)
-/// - "Frailty index"→ `centriole_damage` (direct proxy)
+/// - "MCAI"→ `mcai` (unweighted 5-component)
 /// - "Telomere length" → `differentiated_telomere_length` (differentiated progeny; shortens with age)
 ///
 /// Excluded biomarkers (always return `None`):
@@ -127,7 +127,7 @@ fn extract_biomarker(
     let v = match biomarker {
         "ROS level"     => snap.ros_level,
         "CHIP VAF"      => snap.chip_vaf,
-        "Frailty index" => snap.centriole_damage,
+        "MCAI" => snap.mcai,
         // Differentiated telomere — shortens with age (validated vs Lansdorp 2005)
         "Telomere length" => snap.differentiated_telomere_length,
         _               => return None,
@@ -202,7 +202,7 @@ fn log_likelihood(
     let datasets: &[(&CalibrationDataset, &str)] = &[
         (&ds.ros,      "ROS level"),
         (&ds.chip_vaf, "CHIP VAF"),
-        (&ds.frailty,  "Frailty index"),
+        (&ds.mcai,  "MCAI"),
     ];
 
     let mut ll = 0.0f64;
@@ -516,7 +516,7 @@ pub fn training_fitness(
     let datasets: &[(&CalibrationDataset, &str)] = &[
         (&ds.ros,      "ROS level"),
         (&ds.chip_vaf, "CHIP VAF"),
-        (&ds.frailty,  "Frailty index"),
+        (&ds.mcai,  "MCAI"),
     ];
 
     let mut all_obs  = Vec::new();
@@ -816,8 +816,8 @@ mod tests {
         let snaps = run_simulation(&params).unwrap();
         for s in &snaps {
             assert!(s.ros_level >= 0.0, "ROS must be non-negative");
-            assert!(s.frailty_index >= 0.0 && s.frailty_index <= 1.0,
-                "frailty must be in [0,1], got {}", s.frailty_index);
+            assert!(s.mcai >= 0.0 && s.mcai <= 1.0,
+                "frailty must be in [0,1], got {}", s.mcai);
             assert!(s.telomere_length >= 0.0, "telomere must be non-negative");
         }
     }

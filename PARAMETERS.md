@@ -40,7 +40,7 @@
 | Symbol | Field | Value | Prior | Unit | Biological Meaning | Source |
 |--------|-------|-------|-------|------|--------------------|--------|
 | P₀ | `p0_inheritance` | 0.94 | Beta(18, 1) | probability | P(daughter inherits undamaged centriole) at age 0 | PMID: 67890123 |
-| — | `age_decline_rate` | 0.15 | Fixed | /decade | Rate of asymmetry fidelity loss per decade | PMID: 78901234 |
+| — | `beta_a_fidelity` | 0.15 | Fixed | 1/D_unit | β_A: exponential decay rate of P_A(D) = p0·exp(−β_A·D) | PMID: 78901234 |
 | — | `fidelity_loss` | 0.10 | Fixed | fraction | Total fidelity loss at maximum age | PMID: 89012345 |
 
 **Range validation:** P(inherit_maternal) ∈ [0.60, 0.98] across all ages

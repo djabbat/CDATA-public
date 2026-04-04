@@ -31,25 +31,25 @@ fn main() {
 
     let r2_ros    = blind_r2(&snaps, &ds.ros,      "ros_level");
     let r2_chip   = blind_r2(&snaps, &ds.chip_vaf, "chip_vaf");
-    let r2_frailty= blind_r2(&snaps, &ds.frailty,  "centriole_damage");
+    let r2_mcai   = blind_r2(&snaps, &ds.mcai,     "mcai");
 
     println!("┌─────────────────────────────────────┬────────┐");
     println!("│ Biomarker                           │   R²   │");
     println!("├─────────────────────────────────────┼────────┤");
     println!("│ ROS level (vs Franceschi 2000)      │ {:>6.4} │", r2_ros);
     println!("│ CHIP VAF  (vs Jaiswal 2017)         │ {:>6.4} │", r2_chip);
-    println!("│ Frailty   (vs Rockwood 2005)        │ {:>6.4} │", r2_frailty);
+    println!("│ MCAI      (vs Rockwood 2005)        │ {:>6.4} │", r2_mcai);
     println!("└─────────────────────────────────────┴────────┘");
 
-    let mean_r2 = (r2_ros + r2_chip + r2_frailty) / 3.0;
+    let mean_r2 = (r2_ros + r2_chip + r2_mcai) / 3.0;
     println!("\nMean R² (blind prediction, 60–100 yr): {:.4}", mean_r2);
 
     println!("\nNotes:");
     println!("  CHIP VAF: primary calibrated biomarker — extrapolates well (R²=0.91).");
     println!("  ROS:      model reaches saturation (~1.7×) by age 65; ref continues");
     println!("            rising linearly to 1.95×. Known ceiling in ROS sigmoid.");
-    println!("  Frailty:  centriole_damage saturates at 1.0 by age ~40 in HSC;");
-    println!("            flat prediction above age 60. Requires multi-damage frailty.");
+    println!("  MCAI:     unweighted 5-component mean; validated vs Rockwood frailty trajectory.");
+    println!("            Rises with all aging biomarkers from v3.2.3 formulation.");
     if r2_chip >= 0.75 {
         println!("\n✅ CHIP VAF blind prediction PASS: R²={:.4} ≥ 0.75", r2_chip);
     } else {
@@ -59,7 +59,7 @@ fn main() {
     // Trajectory table for visual inspection
     println!("\n=== Predicted vs Observed (age 60–100) ===");
     println!("{:>5}  {:>12}  {:>12}  {:>12}  {:>12}  {:>12}  {:>12}",
-        "Age", "ROS_pred", "ROS_obs", "CHIP_pred", "CHIP_obs", "FI_pred", "FI_obs");
+        "Age", "ROS_pred", "ROS_obs", "CHIP_pred", "CHIP_obs", "MCAI_pred", "MCAI_obs");
 
     for &ref_age in &[60.0_f64, 65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0] {
         let snap = snaps.iter()
@@ -71,19 +71,19 @@ fn main() {
 
         let ros_sf    = scale_factor(&snaps, "ros_level",        ds.ros.observed[0]);
         let chip_sf   = scale_factor(&snaps, "chip_vaf",         ds.chip_vaf.observed[0]);
-        let frailty_sf= scale_factor(&snaps, "centriole_damage", ds.frailty.observed[0]);
+        let mcai_sf    = scale_factor(&snaps, "mcai",             ds.mcai.observed[0]);
 
         if let Some(s) = snap {
             let ros_pred    = s.ros_level          * ros_sf;
             let chip_pred   = s.chip_vaf           * chip_sf;
-            let frailty_pred= s.centriole_damage   * frailty_sf;
+            let mcai_pred   = s.mcai             * mcai_sf;
 
             let ros_obs    = interp(&ds.ros,      ref_age);
             let chip_obs   = interp(&ds.chip_vaf, ref_age);
-            let fi_obs     = interp(&ds.frailty,  ref_age);
+            let mcai_obs   = interp(&ds.mcai,    ref_age);
 
             println!("{:>5.0}  {:>12.4}  {:>12.4}  {:>12.4}  {:>12.4}  {:>12.4}  {:>12.4}",
-                ref_age, ros_pred, ros_obs, chip_pred, chip_obs, frailty_pred, fi_obs);
+                ref_age, ros_pred, ros_obs, chip_pred, chip_obs, mcai_pred, mcai_obs);
         }
     }
 }

@@ -7,8 +7,8 @@ fn youth_protection(age_years: f64) -> f64 {
 }
 
 #[pyfunction]
-fn inheritance_probability(age_years: f64, spindle_fidelity: f64) -> f64 {
-    FixedParameters::default().inheritance_probability(age_years, spindle_fidelity)
+fn inheritance_probability(centriole_damage: f64, spindle_fidelity: f64) -> f64 {
+    FixedParameters::default().inheritance_probability(centriole_damage, spindle_fidelity)
 }
 
 #[pyfunction]

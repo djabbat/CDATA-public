@@ -118,6 +118,6 @@ Model: amplitude decreases ~5%/decade; observed: ~5%/decade. ✅
 
 Added `chip_vaf × 0.05` as a direct frailty component (5th term).
 centriole_damage weight reduced 0.45→0.40 to keep weights summing to 1.0.
-CHIP now has two pathways to frailty: L1 (→SASP) and direct (→frailty_index).
+CHIP now has two pathways to MCAI: L1 (→SASP) and direct (→chip_vaf component of MCAI).
 Biological basis: Mas-Peiro 2020 (PMID: 32353535) — CHIP independently predicts frailty.
 2 new tests: `test_frailty_formula_matches_five_components`, `test_chip_vaf_contributes_positively_to_frailty`.

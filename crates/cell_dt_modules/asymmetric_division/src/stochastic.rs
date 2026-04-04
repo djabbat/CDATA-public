@@ -36,12 +36,12 @@ impl AsymmetricDivisionSystem {
         }
     }
 
-    pub fn calculate_probability(params: &FixedParameters, age_years: f64, spindle_fidelity: f64) -> f64 {
-        params.inheritance_probability(age_years, spindle_fidelity)
+    pub fn calculate_probability(params: &FixedParameters, centriole_damage: f64, spindle_fidelity: f64) -> f64 {
+        params.inheritance_probability(centriole_damage, spindle_fidelity)
     }
 
-    pub fn roll_division(&mut self, params: &FixedParameters, age_years: f64, spindle_fidelity: f64) -> bool {
-        let prob = Self::calculate_probability(params, age_years, spindle_fidelity);
+    pub fn roll_division(&mut self, params: &FixedParameters, centriole_damage: f64, spindle_fidelity: f64) -> bool {
+        let prob = Self::calculate_probability(params, centriole_damage, spindle_fidelity);
         let inherited = self.rng.gen::<f64>() < prob;
         self.stats.record_division(inherited);
         inherited
@@ -59,11 +59,11 @@ mod tests {
     #[test]
     fn test_probability_bounds() {
         let params = FixedParameters::default();
-        let p_young = AsymmetricDivisionSystem::calculate_probability(&params, 20.0, 1.0);
-        let p_old = AsymmetricDivisionSystem::calculate_probability(&params, 80.0, 0.5);
-        assert!(p_young >= 0.60 && p_young <= 0.98, "p_young={}", p_young);
-        assert!(p_old >= 0.60 && p_old <= 0.98, "p_old={}", p_old);
-        assert!(p_young > p_old);
+        let p_low_damage = AsymmetricDivisionSystem::calculate_probability(&params, 2.0, 1.0);
+        let p_high_damage = AsymmetricDivisionSystem::calculate_probability(&params, 8.0, 0.5);
+        assert!(p_low_damage >= 0.60 && p_low_damage <= 0.98, "p_low_damage={}", p_low_damage);
+        assert!(p_high_damage >= 0.60 && p_high_damage <= 0.98, "p_high_damage={}", p_high_damage);
+        assert!(p_low_damage > p_high_damage);
     }
 
     #[test]
@@ -71,10 +71,10 @@ mod tests {
         let params = FixedParameters::default();
         let mut sys = AsymmetricDivisionSystem::new(42);
         for _ in 0..1000 {
-            sys.roll_division(&params, 50.0, 0.9);
+            sys.roll_division(&params, 5.0, 0.9);
         }
         let fraction = sys.stats.asymmetry_fraction();
-        assert!(fraction > 0.7 && fraction < 0.99, "fraction={}", fraction);
+        assert!(fraction > 0.5 && fraction < 0.99, "fraction={}", fraction);
     }
 
     // ── AsymmetryStatistics ───────────────────────────────────────────────────
@@ -134,34 +134,34 @@ mod tests {
     // ── calculate_probability ─────────────────────────────────────────────────
 
     #[test]
-    fn test_prob_decreases_monotonically_with_age() {
+    fn test_prob_decreases_monotonically_with_damage() {
         let params = FixedParameters::default();
-        let ages = [0.0, 20.0, 40.0, 60.0, 80.0, 100.0];
+        let damages = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0];
         let fidelity = 0.9;
-        for w in ages.windows(2) {
+        for w in damages.windows(2) {
             let p1 = AsymmetricDivisionSystem::calculate_probability(&params, w[0], fidelity);
             let p2 = AsymmetricDivisionSystem::calculate_probability(&params, w[1], fidelity);
-            assert!(p1 >= p2, "prob at {} ({}) must be >= prob at {} ({})", w[0], p1, w[1], p2);
+            assert!(p1 >= p2, "prob at damage={} ({}) must be >= prob at damage={} ({})", w[0], p1, w[1], p2);
         }
     }
 
     #[test]
     fn test_prob_decreases_with_fidelity_loss() {
         let params = FixedParameters::default();
-        let age = 50.0;
-        let p_good = AsymmetricDivisionSystem::calculate_probability(&params, age, 1.0);
-        let p_bad  = AsymmetricDivisionSystem::calculate_probability(&params, age, 0.5);
+        let damage = 5.0;
+        let p_good = AsymmetricDivisionSystem::calculate_probability(&params, damage, 1.0);
+        let p_bad  = AsymmetricDivisionSystem::calculate_probability(&params, damage, 0.5);
         assert!(p_good >= p_bad, "Better spindle fidelity → higher probability");
     }
 
     #[test]
     fn test_prob_always_in_clamp_range() {
         let params = FixedParameters::default();
-        for age in [0.0, 25.0, 50.0, 75.0, 100.0, 150.0] {
+        for damage in [0.0, 2.5, 5.0, 7.5, 10.0, 15.0] {
             for fidelity in [0.0, 0.5, 1.0] {
-                let p = AsymmetricDivisionSystem::calculate_probability(&params, age, fidelity);
+                let p = AsymmetricDivisionSystem::calculate_probability(&params, damage, fidelity);
                 assert!(p >= 0.60 && p <= 0.98,
-                    "prob={} out of clamp range at age={} fid={}", p, age, fidelity);
+                    "prob={} out of clamp range at damage={} fid={}", p, damage, fidelity);
             }
         }
     }
@@ -172,7 +172,7 @@ mod tests {
     fn test_roll_division_returns_bool() {
         let params = FixedParameters::default();
         let mut sys = AsymmetricDivisionSystem::new(42);
-        let result = sys.roll_division(&params, 30.0, 0.9);
+        let result = sys.roll_division(&params, 3.0, 0.9);
         // Just a bool — test that stats update
         assert_eq!(sys.stats.total_divisions, 1);
         let _ = result;
@@ -183,7 +183,7 @@ mod tests {
         let params = FixedParameters::default();
         let mut sys = AsymmetricDivisionSystem::new(99);
         for _ in 0..500 {
-            sys.roll_division(&params, 40.0, 0.9);
+            sys.roll_division(&params, 4.0, 0.9);
         }
         assert_eq!(sys.stats.total_divisions, 500);
         assert!(sys.stats.maternal_inheritances <= 500);
@@ -194,10 +194,10 @@ mod tests {
         let params = FixedParameters::default();
         let mut sys = AsymmetricDivisionSystem::new(12345);
         for _ in 0..2000 {
-            sys.roll_division(&params, 30.0, 1.0);
+            sys.roll_division(&params, 0.0, 1.0);
         }
         let f = sys.stats.asymmetry_fraction();
-        // p0_inheritance=0.94 with no age/fidelity penalty → should be near 0.94
+        // p0_inheritance=0.94, damage=0, fidelity=1 → p=0.94 → fraction should be near 0.94
         assert!(f > 0.88 && f < 0.98,
             "Fraction should be near 0.94, got {}", f);
     }
@@ -235,8 +235,8 @@ mod tests {
         let mut sys1 = AsymmetricDivisionSystem::new(77777);
         let mut sys2 = AsymmetricDivisionSystem::new(77777);
         for _ in 0..100 {
-            sys1.roll_division(&params, 50.0, 0.9);
-            sys2.roll_division(&params, 50.0, 0.9);
+            sys1.roll_division(&params, 5.0, 0.9);
+            sys2.roll_division(&params, 5.0, 0.9);
         }
         assert_eq!(sys1.stats.maternal_inheritances, sys2.stats.maternal_inheritances,
             "Same seed must produce same results");
@@ -248,8 +248,8 @@ mod tests {
         let mut sys1 = AsymmetricDivisionSystem::new(1);
         let mut sys2 = AsymmetricDivisionSystem::new(2);
         for _ in 0..1000 {
-            sys1.roll_division(&params, 50.0, 0.9);
-            sys2.roll_division(&params, 50.0, 0.9);
+            sys1.roll_division(&params, 5.0, 0.9);
+            sys2.roll_division(&params, 5.0, 0.9);
         }
         // With very different seeds, exact counts should differ
         // (this could technically fail with probability < 1e-300 but practically never)
@@ -280,7 +280,7 @@ mod tests {
     fn test_probability_at_extreme_low_fidelity() {
         let params = FixedParameters::default();
         // fidelity=0 → max fidelity_loss effect
-        let p = AsymmetricDivisionSystem::calculate_probability(&params, 50.0, 0.0);
+        let p = AsymmetricDivisionSystem::calculate_probability(&params, 5.0, 0.0);
         assert!(p >= 0.60 && p <= 0.98);
     }
 

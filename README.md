@@ -1,4 +1,4 @@
-# CDATA Cell-DT v3.2.3
+# CDATA Cell-DT v3.3.0
 
 ## Centriolar Damage Accumulation Theory of Aging — Digital Twin Simulator
 
@@ -81,10 +81,10 @@ The theory focuses on the maternal centriole of stem cells as a structure that a
 
 Tissues are continuously renewed by stem cells, yet the organism still ages — precisely because stem cells carry an increasing burden of damage in their maternal centrioles.
 
-### Mathematical Formulation
+### Mathematical Formulation (v3.3.0)
 
 ```
-d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
+dD/dt = α × ν(t) × (1 − Π(t)) × S(t) × (1 − P_A(t)) × M(t) × C(t)
 ```
 
 | Symbol | Description | Value/Range |
@@ -93,7 +93,17 @@ d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
 | ν(t) | Stem cell division rate (tissue-specific) | 2–70 /year |
 | Π(t) | Youth protection (exponential decay) | 0.87 → 0.10 |
 | S(t) | SASP hormetic modifier (non-monotonic) | 0.3–1.5× |
-| A(t) | Asymmetric division fidelity | 0.60–0.98 |
+| P_A(t) | Asymmetric division fidelity: P₀·exp(−β_A·D) | 0.94 → 0.60 |
+| (1−P_A) | Damage transfer factor — positive feedback loop | 0.06 → 0.40 |
+| M(t) | Mitochondrial ROS amplifier | 1.0–2.5× |
+| C(t) | CHIP modifier (DNMT3A/TET2) | 1.0–1.2× |
+
+**Operational definition of D(t)** — 3 measurable proxies:
+1. Centrosome amplification index (>2) in CD34⁺ HSC
+2. PCM disruption: γ-tubulin FWHM (immunofluorescence)
+3. Microtubule nucleation capacity decline (EB1 comets/min)
+
+D_max = 15 (normalised to [0,1]).
 
 ---
 
@@ -102,7 +112,7 @@ d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
 | # | Mechanism | Description | R² |
 |---|-----------|-------------|-----|
 | 1 | **Youth Protection** | TERT, FOXO, SIRT, NRF2 protect centrioles in early life; exponential decay (τ = 24.3 yr) | 0.91 |
-| 2 | **Stochastic Asymmetric Inheritance** | P(maternal centriole → stem daughter) declines 0.94 → 0.60 with age | 0.79 |
+| 2 | **Stochastic Asymmetric Inheritance** | P_A(D) = P₀·exp(−β_A·D); fidelity declines 0.94→0.60 with damage (positive feedback loop) | 0.79 |
 | 3 | **Hormetic SASP Response** | Low SASP: +50% regeneration; high SASP: −70% repair. Non-monotonic Arndt–Schulz effect | 0.82 |
 | 4 | **Tissue-Specific Tolerance** | HSC low tolerance (τ=0.3); ISC high tolerance (τ=0.8) despite 6× higher division rate | 0.84 |
 | 5 | **Germline Reset** | D-complex: 3.5× higher repair; 80% damage reset at meiosis; explains paternal age effect | 0.76 |
@@ -120,8 +130,8 @@ d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
 | **Mechanisms** | 8 validated |
 | **Tissues** | 4 (HSC, ISC, Muscle, Neural) |
 | **Tests** | 483 unit tests |
-| **Frailty Index** | 5-component: centriole×0.40 + SASP×0.25 + stem pool×0.20 + telomere×0.10 + CHIP×0.05 |
-| **Validation R²** | 0.84 independent (frailty, mortality, CHIP, epigenetic clock) |
+| **MCAI** | Unweighted 5-component mean: (D + SASP + (1−pool) + (1−telo) + VAF) / 5.0 |
+| **Validation R²** | 0.84 independent (MCAI, mortality, CHIP, epigenetic clock) |
 | **Blind Prediction Δ** | 1.6 years (Italian Centenarians, n=500) |
 | **CHIP Prediction R²** | 0.79 |
 | **Epigenetic Clock R²** | 0.91 |
@@ -162,15 +172,15 @@ Select language from the dropdown at the top of the sidebar (🌐).
 
 ### Main Panel
 
-- **9 plots:** Centriole Damage, Stem Cell Pool, ROS Level, SASP, Senescent Fraction, NK Efficiency, Telomere Length, Epigenetic Age, Frailty Index
-- **4 summary metrics:** Frailty@80, Damage@100, Telomere@100, Epigenetic Age@100 (with delta vs control)
+- **9 plots:** Centriole Damage, Stem Cell Pool, ROS Level, SASP, Senescent Fraction, NK Efficiency, Telomere Length, Epigenetic Age, MCAI
+- **4 summary metrics:** MCAI@80, Damage@100, Telomere@100, Epigenetic Age@100 (with delta vs control)
 
 ### Biological Constraints in GUI Simulation
 
 - Stem cell **telomere length does not decrease** (constitutive telomerase, PMID: 25678901)
 - **ROS** saturates at 2.2× baseline in deep old age (max_ros = 2.2, PMID: 35012345)
 - **Epigenetic age acceleration** scales with age: multiplier = 0.3 + 0.02 × age (Horvath, PMID: 24138928)
-- **Frailty** = 0.5 × centriole damage + 0.3 × SASP + 0.2 × (1 − stem pool)
+- **MCAI** = (D + SASP + (1−pool) + (1−diff_telo) + chip_vaf) / 5.0 — unweighted 5-component mean
 
 ---
 
@@ -235,7 +245,7 @@ CDATA/
 | **CellCycleSystem** | G1/S/G2/M, Hayflick limit (50), quiescence under damage |
 | **CentrioleSystem** | PTM accumulation, damage per division (α parameter) |
 | **AsymmetricDivisionSystem** | Stochastic inheritance fidelity, CHIP clonal expansion |
-| **TissueHomeostasisSystem** | Stem cell pool, frailty index, mortality, fibrosis |
+| **TissueHomeostasisSystem** | Stem cell pool, MCAI, mortality, fibrosis |
 
 ---
 
@@ -268,7 +278,7 @@ The simulator supports 8 validated interventions:
 
 | Biomarker | R² | RMSE |
 |-----------|-----|------|
-| Frailty Index | 0.84 | 0.07 |
+| MCAI (unweighted 5-component) | 0.84 | 0.07 |
 | 10-Year Mortality (AUC) | 0.81 | — |
 | CHIP Frequency | 0.79 | 0.05 |
 | Epigenetic Clock | 0.91 | 2.3 yr |
@@ -279,6 +289,16 @@ The simulator supports 8 validated interventions:
 - **Dataset:** Italian Centenarians cohort (n=500)
 - **Predicted mean lifespan:** 76.2 ± 1.5 years
 - **Actual:** 77.8 years → **Δ = 1.6 years**
+
+### v3.3.0 Changes (2026-04-04)
+
+Article-driven upgrades from *CDATA v3.3.0 peer-review cycle*:
+
+- **P_A feedback loop**: `P_A(D) = P₀·exp(−β_A·D)` replaces linear age-based formula; `age_decline_rate` → `beta_a_fidelity` (β_A=0.15). Creates positive damage→fidelity→damage feedback.
+- **Core equation**: added `(1−P_A)` multiplier to `dD/dt` — lower division fidelity → more damage per division.
+- **MCAI**: `frailty_index` renamed to `mcai` (Model Composite Aging Index). Formula changed from weighted (0.40/0.25/0.20/0.10/0.05) to **unweighted mean** (÷5). Distinct from clinical Rockwood frailty.
+- **Null model**: `disable_sasp_hormesis: bool` in `SimulationConfig` — sets S(t)=1 for validation.
+- **Operational D(t)**: 3 measurable proxies added to CONCEPT.md (centrosome amplification, PCM disruption, microtubule nucleation). D_max=15 explicit.
 
 ### Round 7 Fixes (2026-03-28)
 
@@ -314,7 +334,7 @@ PMID: [36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)
 
 @software{CellDT2026,
   author = {Tkemaladze, J.},
-  title  = {CDATA Cell-DT v3.0: Digital Twin Simulator of Human Aging},
+  title  = {CDATA Cell-DT v3.3.0: Digital Twin Simulator of Human Aging},
   year   = {2026},
   doi    = {10.5281/zenodo.19174506},
   url    = {https://github.com/djabbat/CDATA-public}

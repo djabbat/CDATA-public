@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// 32 параметра модели CDATA v3.0
+/// 32 параметра модели CDATA v3.2.3
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixedParameters {
     // Базовые
@@ -13,7 +13,11 @@ pub struct FixedParameters {
     pub pi_baseline: f64,
     // Асимметрия деления
     pub p0_inheritance: f64,
-    pub age_decline_rate: f64,
+    /// β_A — sensitivity of asymmetric division fidelity to centriolar damage.
+    /// P_A(D) = p0_inheritance · exp(−beta_a_fidelity · D).
+    /// Renamed from age_decline_rate (v3.2.3): now damage-based (article Eq. 3).
+    pub beta_a_fidelity: f64,
+    /// Spindle fidelity loss penalty (used in stochastic per-division model).
     pub fidelity_loss: f64,
     // Тканевые — HSC
     pub hsc_nu: f64,
@@ -66,7 +70,7 @@ impl Default for FixedParameters {
             tau_protection: 24.3,
             pi_baseline: 0.10,
             p0_inheritance: 0.94,
-            age_decline_rate: 0.15,
+            beta_a_fidelity: 0.15,
             fidelity_loss: 0.10,
             hsc_nu: 12.0,
             hsc_beta: 1.0,
@@ -135,11 +139,23 @@ impl FixedParameters {
         self.pi_0 * (-age_years / self.tau_protection).exp() + self.pi_baseline
     }
 
-    pub fn inheritance_probability(&self, age_years: f64, spindle_fidelity: f64) -> f64 {
+    /// P_A(D, spindle) — asymmetric division fidelity (article Eq. 3, v3.2.3).
+    /// Exponential decay with centriolar damage + spindle fidelity penalty:
+    ///   P_A = p0 · exp(−β_A · D) · (1 − fidelity_loss · (1 − spindle_fidelity))
+    /// Used by stochastic per-division model (stochastic.rs).
+    pub fn inheritance_probability(&self, centriole_damage: f64, spindle_fidelity: f64) -> f64 {
         let p = self.p0_inheritance
-            - self.age_decline_rate * (age_years / 100.0)
-            - self.fidelity_loss * (1.0 - spindle_fidelity);
+            * (-self.beta_a_fidelity * centriole_damage).exp()
+            * (1.0 - self.fidelity_loss * (1.0 - spindle_fidelity));
         p.clamp(0.60, 0.98)
+    }
+
+    /// P_A(D) — damage-only variant used in the core AgingEngine damage equation.
+    ///   P_A = p0 · exp(−β_A · D)
+    /// As D increases, fidelity declines → more damage retained by stem daughters.
+    pub fn inheritance_probability_damage(&self, centriole_damage: f64) -> f64 {
+        (self.p0_inheritance * (-self.beta_a_fidelity * centriole_damage).exp())
+            .clamp(0.0, 1.0)
     }
 
     pub fn sasp_hormetic_response(&self, sasp: f64) -> f64 {
@@ -180,11 +196,12 @@ mod tests {
     #[test]
     fn test_inheritance_probability_bounds() {
         let p = FixedParameters::default();
-        let prob = p.inheritance_probability(50.0, 0.8);
+        // centriole_damage=5.0 (moderate), spindle_fidelity=0.8
+        let prob = p.inheritance_probability(5.0, 0.8);
         assert!(prob >= 0.60, "prob={}", prob);
         assert!(prob <= 0.98, "prob={}", prob);
-        // Молодой > Старый
-        assert!(p.inheritance_probability(20.0, 1.0) > p.inheritance_probability(80.0, 0.5));
+        // Low damage > High damage (higher damage = lower fidelity)
+        assert!(p.inheritance_probability(2.0, 1.0) > p.inheritance_probability(8.0, 0.5));
     }
 
     #[test]
@@ -346,11 +363,11 @@ mod tests {
     }
 
     #[test]
-    fn test_inheritance_probability_decreases_with_age() {
+    fn test_inheritance_probability_decreases_with_damage() {
         let p = FixedParameters::default();
         let fidelity = 0.9;
-        assert!(p.inheritance_probability(20.0, fidelity) >= p.inheritance_probability(60.0, fidelity));
-        assert!(p.inheritance_probability(60.0, fidelity) >= p.inheritance_probability(100.0, fidelity));
+        assert!(p.inheritance_probability(2.0, fidelity) >= p.inheritance_probability(6.0, fidelity));
+        assert!(p.inheritance_probability(6.0, fidelity) >= p.inheritance_probability(10.0, fidelity));
     }
 
     #[test]
@@ -370,13 +387,13 @@ mod tests {
     }
 
     #[test]
-    fn test_inheritance_probability_range_all_ages() {
+    fn test_inheritance_probability_range_all_damage_levels() {
         let p = FixedParameters::default();
-        for age in [0.0, 10.0, 25.0, 50.0, 75.0, 100.0, 120.0] {
+        for damage in [0.0, 1.0, 2.5, 5.0, 7.5, 10.0, 12.0] {
             for fidelity in [0.0, 0.5, 1.0] {
-                let prob = p.inheritance_probability(age, fidelity);
+                let prob = p.inheritance_probability(damage, fidelity);
                 assert!(prob >= 0.60 && prob <= 0.98,
-                    "prob={} at age={} fidelity={}", prob, age, fidelity);
+                    "prob={} at damage={} fidelity={}", prob, damage, fidelity);
             }
         }
     }
@@ -612,9 +629,9 @@ mod tests {
     }
 
     #[test]
-    fn test_age_decline_rate_positive() {
+    fn test_beta_a_fidelity_positive() {
         let p = FixedParameters::default();
-        assert!(p.age_decline_rate > 0.0);
+        assert!(p.beta_a_fidelity > 0.0);
     }
 
     // ── Monotonicity tests: damage increases with age ──────────────────────────
@@ -641,14 +658,14 @@ mod tests {
     }
 
     #[test]
-    fn test_inheritance_decay_symmetric_age_penalty() {
+    fn test_inheritance_decay_with_damage_penalty() {
         let p = FixedParameters::default();
-        // At same spindle, step from 0 to 100 yr: total decline = age_decline_rate * 1.0
-        let p0 = p.inheritance_probability(0.0,  1.0);
-        let p1 = p.inheritance_probability(100.0, 1.0);
-        // decline = p0 - p1 ≈ age_decline_rate * 1.0 = 0.15
+        // At same spindle, increasing damage from 0 to 10 should reduce fidelity
+        let p0 = p.inheritance_probability(0.0, 1.0);
+        let p1 = p.inheritance_probability(10.0, 1.0);
+        // exponential decay: p1 = p0 * exp(-0.15 * 10) < p0
         let decline = p0 - p1;
-        assert!(decline >= 0.0, "Should only decline or stay flat");
+        assert!(decline >= 0.0, "Should only decline or stay flat with increasing damage");
     }
 
     #[test]
@@ -705,9 +722,9 @@ mod tests {
     #[test]
     fn test_inheritance_probability_not_nan() {
         let p = FixedParameters::default();
-        for age in [0.0, 50.0, 100.0] {
+        for damage in [0.0, 5.0, 10.0] {
             for fidelity in [0.0, 0.5, 1.0] {
-                let v = p.inheritance_probability(age, fidelity);
+                let v = p.inheritance_probability(damage, fidelity);
                 assert!(!v.is_nan());
             }
         }

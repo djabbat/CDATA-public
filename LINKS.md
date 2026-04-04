@@ -15,7 +15,7 @@
 
 ### CDATA ↔ AIM (AI-assisted Integrative Medicine)
 - **Direction:** CDATA frailty predictions → AIM patient history
-- **Use case:** frailty_index and epigenetic_age as prognostic fields in AIM's Bayesian network
+- **Use case:** mcai and epigenetic_age as prognostic fields in AIM's Bayesian network
 - **Status:** Planned integration
 
 ### CDATA ↔ HealthWearable

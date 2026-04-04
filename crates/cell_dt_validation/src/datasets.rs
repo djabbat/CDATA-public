@@ -71,7 +71,7 @@ pub struct CentenarianDatasets {
 
     /// Frailty index in Italian cohort (ages 60–100).
     /// Rockwood 2005 (PMID 16100303); FI ≈ 0.15 at 60, 0.40 at 90.
-    pub frailty: CalibrationDataset,
+    pub mcai: CalibrationDataset,
 }
 
 impl CentenarianDatasets {
@@ -79,7 +79,7 @@ impl CentenarianDatasets {
         Self {
             ros:      centenarian_ros(),
             chip_vaf: centenarian_chip_vaf(),
-            frailty:  centenarian_frailty(),
+            mcai:  centenarian_frailty(),
         }
     }
 }
@@ -105,7 +105,7 @@ fn centenarian_chip_vaf() -> CalibrationDataset {
 
 fn centenarian_frailty() -> CalibrationDataset {
     CalibrationDataset::new(
-        "Frailty index (centenarians)",
+        "MCAI (centenarians)",
         vec![ 60.0,  65.0,  70.0,  75.0,  80.0,  85.0,  90.0,  95.0, 100.0],
         vec![0.150, 0.180, 0.210, 0.245, 0.280, 0.320, 0.360, 0.390, 0.400],
         vec![0.018, 0.020, 0.022, 0.025, 0.028, 0.032, 0.036, 0.040, 0.045],
@@ -129,7 +129,7 @@ pub struct ReferenceDatasets {
 
     /// Frailty index (Rockwood accumulation model, 0–1)
     /// Source: Mitnitski et al. 2001 (PMID 11724242)
-    pub frailty: CalibrationDataset,
+    pub mcai: CalibrationDataset,
 
     /// Epigenetic age acceleration (Horvath clock deviation, years)
     /// Source: Horvath 2013 (PMID 24138928)
@@ -142,7 +142,7 @@ impl ReferenceDatasets {
             ros:          ros_dataset(),
             telomere:     telomere_dataset(),
             chip_vaf:     chip_vaf_dataset(),
-            frailty:      frailty_dataset(),
+            mcai:      frailty_dataset(),
             epi_age_accel: epi_dataset(),
         }
     }
@@ -188,7 +188,7 @@ fn chip_vaf_dataset() -> CalibrationDataset {
 /// Mitnitski 2001 (PMID 11724242): FI ≈ 0.05 at 20 yr, 0.15 at 50 yr.
 fn frailty_dataset() -> CalibrationDataset {
     CalibrationDataset::new(
-        "Frailty index",
+        "MCAI",
         vec![20.0, 25.0, 30.0, 35.0, 40.0, 45.0, 50.0],
         vec![0.050, 0.062, 0.075, 0.090, 0.105, 0.122, 0.142],
         vec![0.010, 0.010, 0.012, 0.012, 0.013, 0.014, 0.015],
@@ -216,7 +216,7 @@ mod tests {
         assert_eq!(ds.ros.ages.len(), 7);
         assert_eq!(ds.telomere.ages.len(), 7);
         assert_eq!(ds.chip_vaf.ages.len(), 7);
-        assert_eq!(ds.frailty.ages.len(), 7);
+        assert_eq!(ds.mcai.ages.len(), 7);
         assert_eq!(ds.epi_age_accel.ages.len(), 7);
     }
 
@@ -253,15 +253,15 @@ mod tests {
         for &s in &ds.ros.noise_sd { assert!(s > 0.0); }
         for &s in &ds.telomere.noise_sd { assert!(s > 0.0); }
         for &s in &ds.chip_vaf.noise_sd { assert!(s > 0.0); }
-        for &s in &ds.frailty.noise_sd { assert!(s > 0.0); }
+        for &s in &ds.mcai.noise_sd { assert!(s > 0.0); }
         for &s in &ds.epi_age_accel.noise_sd { assert!(s > 0.0); }
     }
 
     #[test]
-    fn test_frailty_in_biological_range() {
+    fn test_mcai_in_biological_range() {
         let ds = ReferenceDatasets::load();
-        for &v in &ds.frailty.observed {
-            assert!(v >= 0.0 && v <= 1.0, "frailty must be in [0,1]: {}", v);
+        for &v in &ds.mcai.observed {
+            assert!(v >= 0.0 && v <= 1.0, "mcai must be in [0,1]: {}", v);
         }
     }
 
@@ -309,7 +309,7 @@ mod tests {
         let ds = CentenarianDatasets::load();
         assert_eq!(ds.ros.ages.len(), 9);
         assert_eq!(ds.chip_vaf.ages.len(), 9);
-        assert_eq!(ds.frailty.ages.len(), 9);
+        assert_eq!(ds.mcai.ages.len(), 9);
     }
 
     #[test]
@@ -337,10 +337,10 @@ mod tests {
     }
 
     #[test]
-    fn test_centenarian_frailty_increases_with_age() {
+    fn test_centenarian_mcai_increases_with_age() {
         let ds = CentenarianDatasets::load();
-        for w in ds.frailty.observed.windows(2) {
-            assert!(w[1] >= w[0], "centenarian frailty should increase with age");
+        for w in ds.mcai.observed.windows(2) {
+            assert!(w[1] >= w[0], "centenarian mcai should increase with age");
         }
     }
 

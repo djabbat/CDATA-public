@@ -13,13 +13,13 @@ fn main() {
     let baseline = engine.run(1);
 
     println!("{:<8} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10} {:<10}",
-        "Age", "Damage", "StemPool", "ROS", "SASP", "Frailty", "Telomere", "EpiAge");
+        "Age", "Damage", "StemPool", "ROS", "SASP", "MCAI", "Telomere", "EpiAge");
     println!("{}", "-".repeat(88));
 
     for snap in baseline.iter().filter(|s| s.age_years as usize % 10 == 0) {
         println!("{:<8.0} {:<10.4} {:<10.4} {:<10.4} {:<10.4} {:<10.4} {:<10.4} {:<10.1}",
             snap.age_years, snap.centriole_damage, snap.stem_cell_pool,
-            snap.ros_level,  snap.sasp_level,  snap.frailty_index,
+            snap.ros_level,  snap.sasp_level,  snap.mcai,
             snap.telomere_length, snap.epigenetic_age);
     }
 
@@ -34,7 +34,7 @@ fn main() {
         let snap80 = hist.iter().find(|s| (s.age_years - 80.0).abs() < 0.5).unwrap();
         println!("  {:<18} damage={:.4}  frailty={:.4}  telomere={:.4}",
             preset.label(), snap80.centriole_damage,
-            snap80.frailty_index, snap80.telomere_length);
+            snap80.mcai, snap80.telomere_length);
     }
 
     // --- Intervention comparison at age 80 ---
@@ -52,10 +52,10 @@ fn main() {
     let baseline_80 = baseline.iter().find(|s| (s.age_years - 80.0).abs() < 0.5).unwrap();
     let ivs_80      = ivs_hist.iter().find(|s| (s.age_years - 80.0).abs() < 0.5).unwrap();
     println!("  Baseline   damage={:.4}  frailty={:.4}  telomere={:.4}  ros={:.4}",
-        baseline_80.centriole_damage, baseline_80.frailty_index,
+        baseline_80.centriole_damage, baseline_80.mcai,
         baseline_80.telomere_length,  baseline_80.ros_level);
     println!("  All ivs    damage={:.4}  frailty={:.4}  telomere={:.4}  ros={:.4}",
-        ivs_80.centriole_damage, ivs_80.frailty_index,
+        ivs_80.centriole_damage, ivs_80.mcai,
         ivs_80.telomere_length,  ivs_80.ros_level);
 
     // --- Progeria comparison ---
@@ -68,7 +68,7 @@ fn main() {
         let hist = e.run(1);
         let snap50 = hist.iter().find(|s| (s.age_years - 50.0).abs() < 0.5).unwrap();
         println!("  {:<18} damage={:.4}  frailty={:.4}",
-            preset.label(), snap50.centriole_damage, snap50.frailty_index);
+            preset.label(), snap50.centriole_damage, snap50.mcai);
     }
 
     println!("\n=== Round 7 fixes (all in AgingEngine::step) ===");
