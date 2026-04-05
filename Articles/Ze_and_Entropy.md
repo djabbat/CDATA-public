@@ -161,7 +161,7 @@ Ze theory provides a parsimonious derivation of the second law of thermodynamics
 ## References
 
 1. Tkemaladze, J. (2026). Ze Theory as an Interpretive Framework for Quantum Mechanics. *Longevity Horizon*, 2(4). DOI: https://doi.org/10.65649/a874t352
-2. Tkemaladze, J. (2026). Unified Axioms of the Ze Vector Theory. *Longevity Horizon*, 2(4). DOI: https://doi.org/10.65649/km7eg015
+2. Tkemaladze, J. (2026). Unified Axioms of the Ze Vectors Theory. *Longevity Horizon*, 2(4). DOI: https://doi.org/10.65649/km7eg015
 3. Tkemaladze, J. (2026). Mathematical formalism of Ze. *Longevity Horizon*, 2(2). DOI: https://doi.org/10.65649/kzj86888
 4. Tkemaladze, J. (2026). Aging as Informational Closure. *Longevity Horizon*, 2(4). DOI: https://doi.org/10.65649/n8grhs05
 5. Tkemaladze, J. (2026). Ze Systems Generate Entropy to Forge Truth. *Longevity Horizon*, 2(2). DOI: https://doi.org/10.65649/vgrw2c93

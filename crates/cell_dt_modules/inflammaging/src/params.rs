@@ -11,6 +11,14 @@ pub struct InflammagingParams {
     // Biochemistry: extracellular HMGB1/HSP70 cleared by lysosomal degradation
     // Default 0.1 yr⁻¹ → τ = 10 years; fast pool (HMGB1) τ~1 yr → use 1.0 if needed
     pub damps_decay_rate: f64,
+    /// CHIP→SASP amplification strength (CDATA v3.5, Open Question 4).
+    ///
+    /// Quantitative coupling: CHIP VAF amplifies SASP production rate.
+    ///   sasp_prod *= (1 + chip_vaf × chip_sasp_strength)
+    ///
+    /// Prior: Normal(0.5, 0.15) — from Wu et al. (2023, PMID: 37145845).
+    /// Range: [0.0, 2.0]; values > 1.0 imply strong CHIP-driven inflammaging.
+    pub chip_sasp_strength: f64,
 }
 
 impl Default for InflammagingParams {
@@ -22,6 +30,7 @@ impl Default for InflammagingParams {
             nk_age_decay: 0.010,  // FIX Round 7 (B4): 0.005→0.010; ~50% NK decline by age 70 per PMID: 12803352
             fibrosis_rate: 0.02,
             damps_decay_rate: 0.1, // FIX C4: τ = 10 yr for slow DAMPs pool (HMGB1 chronic)
+            chip_sasp_strength: 0.5, // Normal(0.5, 0.15) prior — Wu et al. 2023
         }
     }
 }

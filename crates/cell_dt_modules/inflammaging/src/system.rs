@@ -18,6 +18,24 @@ impl InflammagingSystem {
         dna_damage: f64,
         mtdna_release: f64,
     ) {
+        self.update_with_chip(state, dt, age_years, dna_damage, mtdna_release, 0.0);
+    }
+
+    /// Full update with explicit CHIP VAF (CDATA v3.5, L1 link).
+    ///
+    /// `chip_vaf`: CHIP variant allele frequency [0.0, 1.0].
+    ///   At age 70: typical VAF ≈ 0.07 (Jaiswal 2017, PMID: 28792876).
+    ///   CHIP amplifies SASP: sasp_prod *= (1 + chip_vaf × chip_sasp_strength)
+    ///   Prior on chip_sasp_strength: Normal(0.5, 0.15) — Wu et al. 2023.
+    pub fn update_with_chip(
+        &self,
+        state: &mut InflammagingState,
+        dt: f64,
+        age_years: f64,
+        dna_damage: f64,
+        mtdna_release: f64,
+        chip_vaf: f64,
+    ) {
         // DAMPs
         let damps_prod = self.params.damps_rate * (state.senescent_cell_fraction + dna_damage * 0.5);
         // FIX C4: use named damps_decay_rate instead of hardcoded 0.1
@@ -27,16 +45,16 @@ impl InflammagingSystem {
         state.cgas_sting_activity = (state.damps_level * self.params.cgas_sensitivity + mtdna_release * 0.5).min(1.0);
 
         // NF-κB: dynamic activation
-        // Activated by cGAS-STING signal, DAMPs, and SASP positive feedback loop
-        // FIX Round 7 (B2): removed spurious *0.9 coefficient; weights sum to 1.0 exactly,
-        // so clamp upper bound tightened to 0.95 (basal 0.05 + max input 0.90)
+        // FIX Round 7 (B2): removed spurious *0.9; weights sum to 1.0; clamp to 0.95
         let nfkb_input = state.cgas_sting_activity * 0.6
             + state.sasp_level * 0.3
             + state.damps_level * 0.1;
         state.nfkb_activity = (0.05 + nfkb_input).clamp(0.05, 0.95);
 
-        // SASP production: requires cGAS-STING × NF-κB × senescent cell burden
-        let sasp_prod = state.cgas_sting_activity * state.nfkb_activity * state.senescent_cell_fraction;
+        // SASP production with CHIP amplifier (L1 link, CDATA v3.5)
+        let chip_amplifier = 1.0 + chip_vaf.clamp(0.0, 1.0) * self.params.chip_sasp_strength;
+        let sasp_prod = state.cgas_sting_activity * state.nfkb_activity
+            * state.senescent_cell_fraction * chip_amplifier;
         state.sasp_level = (state.sasp_level + sasp_prod * dt - self.params.sasp_decay * state.sasp_level * dt).clamp(0.0, 1.0);
 
         // NK эффективность

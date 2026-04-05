@@ -2,7 +2,7 @@
 
 ## Internal Ecosystem Links
 
-### CDATA ↔ Ze (Ze Vector Theory)
+### CDATA ↔ Ze (Ze Vectors Theory)
 - **Direction:** CDATA simulation output → Ze-analysis
 - **Use case:** Stem cell division stream (T=division, S=quiescence) → Ze-velocity v as aging biomarker
 - **Planned article:** "CDATA + Ze: Centriolar Damage and Ze-State of Stem Cells" (NEEDTOWRITE.md)

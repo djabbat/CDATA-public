@@ -40,7 +40,7 @@ pub fn mito_shield_for_o2(o2_percent: f64, cell_type: CellTypeShield) -> f64 {
     (max * (-K_O2 * o2_percent).exp()).clamp(0.0, 1.0)
 }
 
-/// Predicted Hayflick limit from CDATA v3.4 analytical formula (article §3).
+/// Predicted Hayflick limit from CDATA v3.5 analytical formula (article §3).
 ///
 ///   N_Hayflick([O₂]) = D_crit / (alpha_nu_beta × (1 − mito_shield([O₂])))
 ///
@@ -54,6 +54,39 @@ pub fn predicted_hayflick(o2_percent: f64, cell_type: CellTypeShield) -> f64 {
     if denom < 1e-9 { return f64::INFINITY; }
     D_CRIT / denom
 }
+
+/// Predicted Hayflick limit with ROCK inhibitor (CDATA v3.5, Prediction 4).
+///
+/// Extended formula (article §5.1):
+///   N_Hayflick([O₂], [ROCKi]) =
+///       D_crit / [alpha_nu_beta × (1 − mito_shield([O₂])) × (1 − ε × [ROCKi])]
+///
+/// ε ≈ 0.05–0.07 μM⁻¹ (to be calibrated in Experiment 4; default = 0.06 μM⁻¹).
+/// [ROCKi] in μM (Y-27632; typical range 1–20 μM in Peters-Hall protocol).
+///
+/// Returns f64::INFINITY if the effective denominator < 1e-9 (full protection).
+pub fn predicted_hayflick_with_rocki(
+    o2_percent: f64,
+    cell_type: CellTypeShield,
+    rocki_um: f64,
+    epsilon: f64,
+) -> f64 {
+    debug_assert!(rocki_um >= 0.0, "ROCKi concentration must be ≥ 0");
+    debug_assert!(epsilon >= 0.0 && epsilon <= 0.5, "ε must be in [0, 0.5]");
+
+    const D_CRIT: f64 = 1000.0;
+    const ALPHA_NU_BETA: f64 = 20.0;
+    let shield = mito_shield_for_o2(o2_percent, cell_type);
+    let rocki_factor = (1.0 - epsilon * rocki_um).max(0.01); // clamp: never negative
+    let denom = ALPHA_NU_BETA * (1.0 - shield) * rocki_factor;
+    if denom < 1e-9 { return f64::INFINITY; }
+    D_CRIT / denom
+}
+
+/// Default ε coefficient for ROCKi extension formula (CDATA v3.5).
+/// Midpoint of calibration range 0.05–0.07 μM⁻¹.
+/// Update after Experiment 4 (Prediction 4) calibration.
+pub const ROCKI_EPSILON_DEFAULT: f64 = 0.06;
 
 pub struct MitochondrialSystem {
     pub params: MitochondrialParams,
