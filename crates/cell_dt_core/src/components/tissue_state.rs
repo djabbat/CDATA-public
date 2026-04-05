@@ -13,6 +13,11 @@ pub struct TissueState {
     /// Differentiated progeny telomere (normalised: 1.0 = young adult, 0.12 = Hayflick).
     /// Differentiating daughters lack telomerase → shorten ~30–50 bp/yr (Lansdorp 2005).
     pub differentiated_telomere_length: f64,
+    /// Ambient O₂ concentration in the stem cell niche (% O₂).
+    /// Default: 21.0 (normoxia / standard culture).
+    /// HSC niche in vivo: ~1–3%. Set to 2.0 to simulate physiological hypoxia.
+    /// Used by MitochondrialSystem to compute mito_shield_for_o2() (CDATA v3.4).
+    pub current_o2_percent: f64,
 }
 
 impl Default for TissueState {
@@ -26,6 +31,7 @@ impl Default for TissueState {
             epigenetic_age: 0.0,
             telomere_length: 1.0,
             differentiated_telomere_length: 1.0,
+            current_o2_percent: 21.0,
         }
     }
 }
@@ -33,6 +39,16 @@ impl Default for TissueState {
 impl TissueState {
     pub fn new(age_years: f64) -> Self {
         Self { age_years, epigenetic_age: age_years, ..Default::default() }
+    }
+
+    /// Create tissue starting at given age and oxygen tension.
+    pub fn new_with_o2(age_years: f64, o2_percent: f64) -> Self {
+        Self {
+            age_years,
+            epigenetic_age: age_years,
+            current_o2_percent: o2_percent,
+            ..Default::default()
+        }
     }
 
     pub fn is_viable(&self) -> bool {
@@ -253,5 +269,46 @@ mod tests {
         let s = TissueState::default();
         let dbg = format!("{:?}", s);
         assert!(dbg.contains("TissueState"));
+    }
+
+    // ── current_o2_percent ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_default_o2_is_normoxia() {
+        let s = TissueState::default();
+        assert!((s.current_o2_percent - 21.0).abs() < 1e-9,
+            "Default O₂ must be 21.0% (normoxia / standard culture)");
+    }
+
+    #[test]
+    fn test_new_o2_inherits_normoxia() {
+        let s = TissueState::new(40.0);
+        assert!((s.current_o2_percent - 21.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_new_with_o2_sets_hypoxia() {
+        let s = TissueState::new_with_o2(0.0, 2.0);
+        assert!((s.current_o2_percent - 2.0).abs() < 1e-9,
+            "new_with_o2(2.0) must produce HSC-niche hypoxia");
+    }
+
+    #[test]
+    fn test_new_with_o2_preserves_age() {
+        let s = TissueState::new_with_o2(35.0, 3.0);
+        assert!((s.age_years - 35.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_o2_can_be_set_directly() {
+        let mut s = TissueState::default();
+        s.current_o2_percent = 1.0;
+        assert!((s.current_o2_percent - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_o2_zero_is_valid_extreme() {
+        let s = TissueState::new_with_o2(0.0, 0.0);
+        assert!(s.current_o2_percent.is_finite());
     }
 }

@@ -36,3 +36,6 @@ name = "convergence_check"
 
 [[example]]
 name = "circadian_validation"
+
+[[example]]
+name = "o2_dose_response"

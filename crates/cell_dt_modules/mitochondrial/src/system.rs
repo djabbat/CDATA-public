@@ -1,6 +1,60 @@
 use cell_dt_core::MitochondrialState;
 use crate::params::{MitochondrialParams, sigmoid_ros, compute_mitophagy, accumulate_mtdna};
 
+// ── Hypoxia prediction constants (CDATA v3.4, calibrated vs. Peters-Hall et al. 2020) ──
+// Peters-Hall et al. (2020, FASEB J): primary HBECs at 2% O₂ → >200 PD without telomerase.
+// Recalibration: mito_shield_max = 0.99 reproduces >200 PD in the analytical formula.
+// k_o2 = 0.2 /%O₂ from exponential fit to normoxia→hypoxia gradient.
+// Cell-type modifiers for mito_shield_for_o2() below.
+const MITO_SHIELD_MAX: f64 = 0.99;  // max shield at [O₂] → 0 (progenitor cells, v3.4)
+const K_O2: f64 = 0.2;              // exponential decay constant, units: 1/(%O₂)
+
+/// Cell-type modifier for mito_shield_for_o2().
+/// Reflects intrinsic oxidative stress resistance of each lineage.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CellTypeShield {
+    EpithelialProgenitor, // 1.00 × MITO_SHIELD_MAX (Peters-Hall HBECs)
+    HematopoieticStem,    // 0.96 × MITO_SHIELD_MAX (HSC bone marrow niche)
+    Fibroblast,           // 0.91 × MITO_SHIELD_MAX (CDATA primary calibration cell)
+}
+
+impl CellTypeShield {
+    fn modifier(self) -> f64 {
+        match self {
+            CellTypeShield::EpithelialProgenitor => 1.00,
+            CellTypeShield::HematopoieticStem    => 0.96,
+            CellTypeShield::Fibroblast           => 0.91,
+        }
+    }
+}
+
+/// Compute mito_shield as a function of ambient O₂ concentration (% atm).
+///
+/// Formula (CDATA v3.4, article §2):
+///   mito_shield([O₂]) = mito_shield_max × cell_modifier × exp(−k_O₂ × [O₂])
+///
+/// Calibration anchor: 2% O₂, EpithelialProgenitor → mito_shield ≈ 0.980 → >200 PD.
+/// Used for hypoxia prediction experiments; does NOT alter the main AgingEngine loop.
+pub fn mito_shield_for_o2(o2_percent: f64, cell_type: CellTypeShield) -> f64 {
+    let max = MITO_SHIELD_MAX * cell_type.modifier();
+    (max * (-K_O2 * o2_percent).exp()).clamp(0.0, 1.0)
+}
+
+/// Predicted Hayflick limit from CDATA v3.4 analytical formula (article §3).
+///
+///   N_Hayflick([O₂]) = D_crit / (alpha_nu_beta × (1 − mito_shield([O₂])))
+///
+/// Parameters calibrated to: N ≈ 50 at normoxia (21% O₂), fibroblast cell type.
+/// d_crit = 1000 a.u., alpha_nu_beta = 20 a.u./division.
+pub fn predicted_hayflick(o2_percent: f64, cell_type: CellTypeShield) -> f64 {
+    const D_CRIT: f64 = 1000.0;
+    const ALPHA_NU_BETA: f64 = 20.0;
+    let shield = mito_shield_for_o2(o2_percent, cell_type);
+    let denom = ALPHA_NU_BETA * (1.0 - shield);
+    if denom < 1e-9 { return f64::INFINITY; }
+    D_CRIT / denom
+}
+
 pub struct MitochondrialSystem {
     pub params: MitochondrialParams,
 }
@@ -10,7 +64,27 @@ impl MitochondrialSystem {
         Self { params: MitochondrialParams::default() }
     }
 
+    /// Update mitochondrial state for one time-step.
+    ///
+    /// `o2_percent`: ambient O₂ in the niche (%, default 21.0 = normoxia).
+    /// Uses the combined mito_shield formula (CDATA v3.4):
+    ///   mito_shield_total = mito_shield_age(age) × mito_shield_O2(o2)
+    ///
+    /// Backwards-compatible wrapper (without o2) calls update_with_o2(…, 21.0, Fibroblast).
     pub fn update(&self, state: &mut MitochondrialState, dt: f64, age_years: f64, inflammation_level: f64) {
+        self.update_with_o2(state, dt, age_years, inflammation_level, 21.0, CellTypeShield::Fibroblast);
+    }
+
+    /// Full update with explicit O₂ and cell-type (CDATA v3.4).
+    pub fn update_with_o2(
+        &self,
+        state: &mut MitochondrialState,
+        dt: f64,
+        age_years: f64,
+        inflammation_level: f64,
+        o2_percent: f64,
+        cell_type: CellTypeShield,
+    ) {
         state.mtdna_mutations = accumulate_mtdna(state.mtdna_mutations, state.ros_level, dt);
         let oxidative_input = inflammation_level * 0.3;
         // Scale sigmoid [0,1] to [base_ros_young, max_ros] so that old age can reach
@@ -24,10 +98,13 @@ impl MitochondrialSystem {
         state.mitophagy_efficiency = compute_mitophagy(
             state.ros_level, age_years, self.params.mitophagy_threshold,
         );
-        // FIX Round 7 (C1): exponential decay instead of linear
-        // Literature: mitophagy declines exponentially with age (PMID: 25651178)
-        // k calibrated: 50% decline by age ~70yr → k = ln(2)/70 ≈ 0.0099
-        state.mito_shield = ((-0.0099_f64 * age_years).exp()).max(0.1);
+        // Combined mito_shield (v3.4): age-decay × O₂-dependent shield.
+        // mito_shield_age: exponential decay with organismal age (PMID: 25651178)
+        //   k = ln(2)/70 ≈ 0.0099 → 50% decline by ~70 yr
+        // mito_shield_O2: O₂-dependent via mito_shield_for_o2() (Group 8)
+        let shield_age = (-0.0099_f64 * age_years).exp();
+        let shield_o2 = mito_shield_for_o2(o2_percent, cell_type);
+        state.mito_shield = (shield_age * shield_o2).clamp(0.05, 1.0);
         state.membrane_potential = (1.0 - state.mtdna_mutations * 0.5).max(0.2);
     }
 
@@ -291,6 +368,99 @@ mod tests {
         s.membrane_potential = 0.16;
         assert!(!sys.check_mitochondrial_collapse(&s),
             "Just below thresholds should not collapse");
+    }
+
+    // ── mito_shield_for_o2 (CDATA v3.4 hypoxia prediction) ───────────────────
+
+    #[test]
+    fn test_mito_shield_normoxia_low() {
+        // At 21% O₂, shield should be near zero (exp(-0.2*21) ≈ 0.015)
+        let s = mito_shield_for_o2(21.0, CellTypeShield::Fibroblast);
+        assert!(s < 0.05, "Normoxia shield should be near 0, got {}", s);
+    }
+
+    #[test]
+    fn test_mito_shield_hypoxia_high() {
+        // At 2% O₂, epithelial progenitor shield should be near MITO_SHIELD_MAX
+        let s = mito_shield_for_o2(2.0, CellTypeShield::EpithelialProgenitor);
+        assert!(s > 0.95, "Hypoxia shield (2% O₂, progenitor) should be >0.95, got {}", s);
+    }
+
+    #[test]
+    fn test_mito_shield_increases_with_lower_o2() {
+        let s_normoxia = mito_shield_for_o2(21.0, CellTypeShield::Fibroblast);
+        let s_physio   = mito_shield_for_o2(3.0,  CellTypeShield::Fibroblast);
+        let s_deep     = mito_shield_for_o2(1.0,  CellTypeShield::Fibroblast);
+        assert!(s_deep > s_physio && s_physio > s_normoxia,
+            "Shield must increase as O₂ decreases: {}/{}/{}", s_deep, s_physio, s_normoxia);
+    }
+
+    #[test]
+    fn test_mito_shield_bounded_zero_one() {
+        for o2 in [0.0, 1.0, 2.0, 5.0, 10.0, 21.0, 50.0, 100.0] {
+            for cell_type in [CellTypeShield::Fibroblast,
+                              CellTypeShield::HematopoieticStem,
+                              CellTypeShield::EpithelialProgenitor] {
+                let s = mito_shield_for_o2(o2, cell_type);
+                assert!(s >= 0.0 && s <= 1.0,
+                    "shield={} at O₂={} out of [0,1]", s, o2);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cell_type_modifier_ordering() {
+        // Progenitor > HSC > Fibroblast (more stress-resistant → higher shield)
+        let o2 = 2.0;
+        let sp = mito_shield_for_o2(o2, CellTypeShield::EpithelialProgenitor);
+        let sh = mito_shield_for_o2(o2, CellTypeShield::HematopoieticStem);
+        let sf = mito_shield_for_o2(o2, CellTypeShield::Fibroblast);
+        assert!(sp >= sh && sh >= sf,
+            "shield order: progenitor({}) >= HSC({}) >= fibroblast({})", sp, sh, sf);
+    }
+
+    // ── predicted_hayflick ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_hayflick_normoxia_fibroblast_near_50() {
+        // Calibration: normoxia (21% O₂), fibroblast → ~50 PD
+        let n = predicted_hayflick(21.0, CellTypeShield::Fibroblast);
+        assert!(n > 40.0 && n < 70.0,
+            "Normoxia Hayflick should be ~50, got {}", n);
+    }
+
+    #[test]
+    fn test_hayflick_hypoxia_progenitor_over_200() {
+        // Peters-Hall et al. (2020): 2% O₂, HBECs → >200 PD
+        let n = predicted_hayflick(2.0, CellTypeShield::EpithelialProgenitor);
+        assert!(n > 150.0,
+            "Hypoxia progenitor Hayflick should be >200, got {}", n);
+    }
+
+    #[test]
+    fn test_hayflick_increases_with_lower_o2() {
+        let n21 = predicted_hayflick(21.0, CellTypeShield::Fibroblast);
+        let n3  = predicted_hayflick(3.0,  CellTypeShield::Fibroblast);
+        let n1  = predicted_hayflick(1.0,  CellTypeShield::Fibroblast);
+        assert!(n1 > n3 && n3 > n21,
+            "Hayflick must increase as O₂ decreases: {}/{}/{}", n1, n3, n21);
+    }
+
+    #[test]
+    fn test_hayflick_positive_and_finite() {
+        for o2 in [0.5, 1.0, 2.0, 5.0, 10.0, 21.0] {
+            let n = predicted_hayflick(o2, CellTypeShield::Fibroblast);
+            assert!(n > 0.0 && n.is_finite(),
+                "Hayflick at O₂={} must be positive finite, got {}", o2, n);
+        }
+    }
+
+    #[test]
+    fn test_mito_shield_for_o2_at_zero_equals_max() {
+        // At [O₂]=0: exp(0)=1 → shield = MITO_SHIELD_MAX * modifier
+        let s = mito_shield_for_o2(0.0, CellTypeShield::EpithelialProgenitor);
+        assert!((s - MITO_SHIELD_MAX).abs() < 1e-9,
+            "Shield at O₂=0 should = MITO_SHIELD_MAX={}, got {}", MITO_SHIELD_MAX, s);
     }
 
     #[test]

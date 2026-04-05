@@ -22,7 +22,12 @@ The maternal centriole of stem cells irreversibly accumulates molecular damage t
 
 ### Mitochondrial
 - ROS increases ~2.2× in HSC from age 20 to 70 (Balaban et al. 2005, PMID 16168009)
-- mito_shield follows exponential decay `exp(-k*age)`, not linear (PMID 25651178)
+- **mito_shield — два компонента (v3.4):**
+  - Возрастная деградация: `mito_shield_age(t) = exp(-k_age × t)` (PMID 25651178)
+  - O₂-зависимость: `mito_shield_O2([O₂]) = s_max × φ_cell × exp(-K_O2 × [O₂])`
+  - Объединённая: `mito_shield_total = mito_shield_age × mito_shield_O2`
+  - s_max = 0.99 (Peters-Hall 2020, DOI: 10.1096/fj.201901415R)
+  - K_O2 = 0.2 (%O₂)⁻¹; φ_EpithelialProgenitor=1.00, φ_HSC=0.96, φ_Fibroblast=0.91
 - mtDNA mutation rate: threshold model, not linear accumulation
 - Sigmoid ROS threshold: 0.35 (above = mitochondrial dysfunction cascade)
 

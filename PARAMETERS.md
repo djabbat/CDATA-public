@@ -129,6 +129,42 @@ SASP effect:
 
 ---
 
+## Group 8: Гипоксийный модуль (Hypoxia / O₂-Shield) — module-level constants, v3.4
+
+> **Не входят в 32-параметрную структуру FixedParameters** — хранятся как `const` в
+> `crates/cell_dt_modules/mitochondrial/src/system.rs`.
+> Добавлены 2026-04-05 по результатам Peters-Hall et al. (2020).
+
+| Symbol | Const | Value | Unit | Biological Meaning | Source |
+|--------|-------|-------|------|--------------------|--------|
+| s_max | `MITO_SHIELD_MAX` | 0.99 | fraction | Максимальный щит при [O₂]→0; рекалибровано против >200 PD Peters-Hall | DOI: 10.1096/fj.201901415R |
+| K_O₂ | `K_O2` | 0.2 | (%O₂)⁻¹ | Скорость экспоненциального спада щита с ростом [O₂] | Ito et al. 2006, PMID: 16474382 |
+| D_crit | `D_CRIT` | 1000 | a.u. | Порог повреждения → сенесценция (для N_Hayflick) | Калибровка: N≈50 при 21% O₂ |
+| α·ν·β | `ALPHA_NU_BETA` | 20 | a.u./div | Составной параметр скорости повреждения | Hayflick & Moorhead 1961 |
+
+**Клеточные модификаторы φ_cell (enum CellTypeShield):**
+
+| Вариант | φ | Обоснование |
+|---------|---|------------|
+| `EpithelialProgenitor` | 1.00 | Базальные бронхиальные прогениторы (Peters-Hall 2020) |
+| `HematopoieticStem` | 0.96 | HSC с нишевой антиоксидантной защитой (Ito 2006) |
+| `Fibroblast` | 0.91 | Дифференцированные, меньший PCM (Hayflick 1961) |
+
+**Функции модуля:**
+```rust
+pub fn mito_shield_for_o2(o2_percent: f64, cell_type: CellTypeShield) -> f64
+pub fn predicted_hayflick(o2_percent: f64, cell_type: CellTypeShield) -> f64
+```
+
+**Верификационные предсказания:**
+| Условия | Предсказание | Наблюдение | Статус |
+|---------|------------|------------|--------|
+| Fibroblast, 21% O₂ | N ≈ 50 | 50 ± 8 (Hayflick 1961) | ✅ |
+| Progenitor, 2% O₂ | N ≈ 148 | >200 (Peters-Hall 2020) | ⚠️ Гипотезы §5.1 |
+| Progenitor, 2% O₂ + ROCKi | N ≈ 526 | >200 | ✅ |
+
+---
+
 ## Summary Table
 
 | Group | Count | Estimated | Fixed | Notes |
@@ -140,14 +176,15 @@ SASP effect:
 | SASP | 4 | 2 (θ_stim, θ_inhib) | 2 | |
 | CHIP | 4 | 2 (s_DNMT3A, s_TET2) | 2 | |
 | Fixed system | 4 | 0 | 4 | All fixed from literature |
-| **Total** | **32** | **12** | **20** | **Matches FixedParameters struct (32 fields)** |
+| **Total (FixedParameters)** | **32** | **12** | **20** | **Matches FixedParameters struct (32 fields)** |
+| Hypoxia module (Group 8) | 4+3φ | 0 | All | module-level const, NOT in FixedParameters |
 
 ---
 
 ## Core Equation Reference
 
 ```
-d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t)
+d(Damage)/dt = α × ν(t) × (1 − Π(t)) × S(t) × A(t) × (1 − mito_shield_total(t, [O₂]))
 
 where:
   α      = 0.0082             base centriolar damage per division
@@ -155,6 +192,15 @@ where:
   Π(t)   = Π_baseline + (Π₀ − Π_baseline) × exp(−t / τ_protection)
   S(t)   = SASP hormetic modifier (non-monotonic, see Group 5)
   A(t)   = P(correct inheritance) (declines with age per Group 3)
+  mito_shield_total(t,[O₂]) = exp(−k_age×t) × MITO_SHIELD_MAX × φ_cell × exp(−K_O2×[O₂])
+```
+
+**Derived: Hayflick limit as function of O₂ (Group 8):**
+```
+N_Hayflick([O₂]) = D_crit / (ALPHA_NU_BETA × (1 − mito_shield_for_o2([O₂], cell_type)))
+
+  D_crit        = 1000 a.u.
+  ALPHA_NU_BETA = 20 a.u./div
 ```
 
 ---

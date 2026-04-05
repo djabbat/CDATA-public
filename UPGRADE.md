@@ -112,6 +112,111 @@ MCMC posteriors: τ_protection=24.3 (CI 19.1–29.7), π₀=0.87 (CI 0.82–0.92
 New example `circadian_validation.rs` confirms R²≥0.80 for amplitude decline trajectory.
 Model: amplitude decreases ~5%/decade; observed: ~5%/decade. ✅
 
+## [2026-04-05] Комплексный анализ в свете новых статей (5+_CDATA, Hypoxia v2.0, CDATA+Ze, Ze_Entropy)
+
+### Источник: Перекрёстный анализ всех новых статей vs существующей модели
+
+---
+
+### 🔴 КРИТИЧЕСКИЕ (до подачи в Aging Cell)
+
+**U1 — Обновить CONCEPT.md до v3.4** `[ ]`
+CONCEPT датирован v3.0/v3.2.3 (2026-03-27), но все новые статьи ссылаются на «CDATA v3.4».
+Добавить в CONCEPT: O2-зависимый mito_shield, D_crit=1000 a.u., α·ν·β=20 a.u./div, φ_cell модификаторы.
+
+**U2 — PARAMETERS.md Group 8: Гипоксийный модуль** `[ ]`
+Константы добавлены в system.rs как `const`, но не задокументированы в PARAMETERS.md.
+Добавить:
+```
+s_max = 0.99 (recalibrated, Peters-Hall 2020)
+k_O2 = 0.2 (%O2)^-1
+D_crit = 1000 a.u.
+alpha_nu_beta = 20 a.u./division (composite)
+phi_EpithelialProgenitor = 1.00
+phi_HematopoieticStem = 0.96
+phi_Fibroblast = 0.91
+```
+
+**U3 — Унифицировать версию v3.4 во всех .md** `[ ]`
+Найдено три разных версии: CONCEPT=v3.0, TODO=v3.0, статьи=v3.4.
+
+**U4 — Исправить «18 датасетов» → реальное число в 5+_CDATA_Aging_Cell.md** `[ ]`
+Статья пишет «18 published experiments»; validation/ содержит 5 датасетов.
+Либо добавить 13+ датасетов в validation/, либо исправить заявление в статье.
+
+**U5 — Заменить фиктивные PMID на реальные** `[ ]`
+PARAMETERS.md содержит ≥12 PMID-плейсхолдеров (01234567, 12345678, 23456789...).
+Провести поиск в PubMed и заменить на реальные перед подачей.
+
+**U6 — Унифицировать счётчик тестов** `[ ]`
+CONCEPT=385 (⚠️), TODO=473, KNOWLEDGE=483. Использовать 483 везде.
+
+**U7 — Добавить examples/o2_dose_response.rs** `[ ]`
+Статья указывает Code Available at github.com/djabbat/CDATA-public.
+Без примера, воспроизводящего рис. из статьи — «Code Available» не работает.
+Пример: симулировать fibroblast при O2 = 0.5, 1, 2, 5, 10, 21%, вывести N_Hayflick.
+
+---
+
+### 🟡 ВАЖНЫЕ (v3.5, следующая итерация)
+
+**U8 — Два mito_shield в одну архитектуру** `[ ]`
+Конфликт: KNOWLEDGE §2 имеет `mito_shield = exp(-0.0099×age)` (возрастной),
+новые статьи имеют `mito_shield([O2])` (кислородный).
+Это два разных биологических процесса, нужна единая формула:
+`mito_shield_total(age, O2) = exp(-k_age × age) × s_max × φ × exp(-k_O2 × O2)`
+Реализовать в MitochondrialSystem; добавить O2 как аргумент в update().
+
+**U9 — current_o2_percent в TissueState** `[ ]`
+TissueState не содержит поля [O2]. Нельзя симулировать гипоксические интервенции.
+Добавить: `current_o2_percent: f64` (default: 21.0) в TissueState.
+Передавать в MitochondrialSystem::update() → mito_shield_for_o2().
+
+**U10 — predicted_hayflick() в GUI и PyO3** `[ ]`
+Функция добавлена в system.rs, но не экспортирована в Python и не показана в Streamlit.
+Добавить: график «N_Hayflick vs [O2]» как новый tab в GUI.
+PyO3: fn predicted_hayflick(o2: f64, cell_type: &str) → f64.
+
+**U11 — Стандартизировать масштаб D** `[ ]`
+Три несовместимых масштаба:
+- CDATA main: D нормировано к [0,1], D_max=15
+- Ze статья: D ∈ [0, 0.6] (другие единицы)
+- Hayflick formula: D_crit=1000 a.u. (ненормированный)
+Решение: выбрать один каноничный масштаб и задокументировать конверсию.
+
+**U12 — rho_kinase_inhibition параметр** `[ ]`
+Peters-Hall использовал ROCKi + O2. CDATA имеет механотрансдукцию (Mechanism 6: YAP/TAZ),
+но нет явного ROCK inhibition пути.
+Добавить: параметр `rho_kinase_inhibition: f64` (0.0 = нет, 1.0 = макс.),
+модулирующий `ecm_stiffness` и `centriolar_mechanical_stress`.
+
+---
+
+### 🟢 ДОЛГОСРОЧНЫЕ (v4.0)
+
+**U13 — Формальный dual-clock (centriole || telomere)** `[ ]`
+Статья §5.2: «senescence triggered by whichever clock reaches threshold first».
+Реализовать: `senescent = centriole_damage > threshold || diff_telo < min_telo`.
+
+**U14 — 5-я ткань: Epithelial Progenitor** `[ ]`
+Peters-Hall использовал bronchial basal progenitors. В CDATA нет этого типа.
+Добавить: EpithelialProgenitor с ν=18, β=0.8, τ=0.75 (предварительно).
+
+**U15 — Ze-entropy ↔ SASP математическое соответствие** `[ ]`
+Ze_and_Entropy.md показывает: damage = Ze-бюджет деплеция.
+SASP = сигнал о Ze-энтропии соседних клеток.
+Формализовать: добавить Ze-интерпретацию в KNOWLEDGE.md §3.
+
+**U16 — Horvath clock = Ze-counter** `[ ]`
+Биологически совместимы: epi_age = τ_Z depletion proxy.
+Математически доказать в отдельной статье или Appendix к Ze статье.
+
+**U17 — 18+ реальных датасетов в validation/** `[ ]`
+Для согласования с заявлением в 5+_CDATA_Aging_Cell.md.
+Кандидаты: InCHIANTI, BLSA, WGHS, WB study, UK Biobank aging subset.
+
+---
+
 ## [2026-04-04] CHIP frailty integration
 **Source:** Jaiswal 2017 (PMID: 28792876): CHIP VAF correlates with frailty independent of SASP
 **Status:** [✓ approved 2026-04-04] [✓✓ implemented 2026-04-04]
