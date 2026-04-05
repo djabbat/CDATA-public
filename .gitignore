@@ -1,38 +1,18 @@
-# Rust
-/target/
-**/target/
-Cargo.lock
-*.rs.bk
-*.pdb
-*.exe
-*.dll
-*.so
-*.dylib
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-*.log
-
-# OS
+# CDATA public repo — internal files excluded
+CONCEPT.md
+CLAUDE.md
+TODO.md
+PARAMETERS.md
+MAP.md
+MEMORY.md
+LINKS.md
+KNOWLEDGE.md
+UPGRADE.md
+REMINDER.md
+Articles/
+docs/
+e-mails/
+.claude/
+!README.md
 .DS_Store
-Thumbs.db
-
-# Validation outputs
-validation_results/*.csv
-validation_results/*.json
-validation_results/*.png
-datasets/*_processed.csv
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-
-# Temporary files
-*.tmp
-*.bak
-*.old
+*.swp
