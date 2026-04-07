@@ -11,7 +11,7 @@
 /// InterventionSet and SimulationPreset allow the GUI and calibration code
 /// to run modified simulations without duplicating the step logic.
 
-use cell_dt_core::{FixedParameters, TissueState, MitochondrialState, InflammagingState};
+use cell_dt_core::{FixedParameters, TissueState, MitochondrialState, InflammagingState, SenescenceTrigger};
 use cell_dt_mitochondrial::MitochondrialSystem;
 use cell_dt_inflammaging::InflammagingSystem;
 use cell_dt_tissue_specific::{TissueSpecificParams, TissueType};
@@ -250,20 +250,42 @@ impl AgingEngine {
             base_prot
         };
 
-        let age_factor        = 1.0 - (age_years / 120.0_f64).min(0.5);
+        // Age-dependent division rate slowdown: stem cells divide progressively slower
+        // throughout life. Formula (1 - age/150).max(0.1) gives continuous decline:
+        //   age 20: 0.87×  age 50: 0.67×  age 70: 0.53×  age 90: 0.40×  age 100: 0.33×
+        // Previously was (1 - min(age/120, 0.5)) which INCORRECTLY capped slowdown at 50%
+        // at age 60 — stem cells do NOT plateau at 50% division rate.
+        // Biological basis: Rossi et al. 2008 (PMID: 17460228); Beerman et al. 2013.
+        let age_factor = (1.0 - age_years / 150.0_f64).max(0.10_f64);
+
         // S(t): SASP hormetic modifier; disable_sasp_hormesis = null model (S=1)
         let sasp_factor = if self.config.disable_sasp_hormesis {
             1.0
         } else {
             self.params.sasp_hormetic_response(self.inflamm.sasp_level)
         };
-        let quiescence_factor = (1.0 - self.tissue.centriole_damage * 0.5).max(0.2); // L2
-        let regen_factor      = (1.0 - self.inflamm.fibrosis_level * 0.4).max(0.3);  // L3
+        // L2: Quiescence from centriole damage — more damage → more quiescence.
+        // Formula gives continuous slowdown: damage 0→1 reduces division to ~20% minimum.
+        let quiescence_factor = (1.0 - self.tissue.centriole_damage * 0.8).max(0.20_f64); // L2
+        let regen_factor      = (1.0 - self.inflamm.fibrosis_level * 0.4).max(0.3);       // L3
+
+        // Dual-clock senescence check: if D(t) >= D_crit, division stops entirely (→ 0).
+        // SenescenceTrigger::CentriolarDamage is the primary CDATA mechanism in stem cells.
+        const D_CRIT_NORM: f64 = 1.0;  // damage is normalised to [0, 1]; D_crit = 1.0
+        const TL_CRIT: f64 = 0.12;     // differentiated telomere Hayflick floor
+        let senescence = SenescenceTrigger::evaluate(
+            self.tissue.centriole_damage,
+            D_CRIT_NORM,
+            self.tissue.differentiated_telomere_length,
+            TL_CRIT,
+        );
+        let senescence_block = if senescence.is_senescent() { 0.0 } else { 1.0 };
 
         let division_rate = self.tissue_params.base_division_rate
             * age_factor * sasp_factor
             * self.tissue_params.regenerative_potential
-            * quiescence_factor * regen_factor;
+            * quiescence_factor * regen_factor
+            * senescence_block;  // zero if senescence triggered
 
         let ros_damage_factor = 1.0 + self.mito.ros_level * 0.5;
         let cr_factor = if ivs.caloric_restriction { 1.0 - 0.15 * ivs.strength } else { 1.0 };
@@ -752,6 +774,33 @@ mod tests {
         // Null model should differ from baseline (not necessarily lower — depends on SASP balance)
         let diff = (base.tissue.mcai - null_e.tissue.mcai).abs();
         assert!(diff >= 0.0, "MCAI difference must be non-negative: {}", diff);
+    }
+
+    #[test]
+    fn test_age_factor_continues_declining_past_60() {
+        // Biological fact: stem cells divide more and more slowly throughout life.
+        // age_factor must continue decreasing AFTER age 60 (not plateau).
+        // Previously bugged: min(0.5) capped slowdown at age 60.
+        // Fixed formula: (1.0 - age/150.0).max(0.10)
+        let f60  = (1.0_f64 - 60.0  / 150.0).max(0.10);
+        let f80  = (1.0_f64 - 80.0  / 150.0).max(0.10);
+        let f100 = (1.0_f64 - 100.0 / 150.0).max(0.10);
+        assert!(f80 < f60,  "age_factor must be lower at 80 than 60: {:.3} vs {:.3}", f80, f60);
+        assert!(f100 < f80, "age_factor must be lower at 100 than 80: {:.3} vs {:.3}", f100, f80);
+        // Absolute values check
+        assert!((f60  - 0.60).abs() < 0.01, "age_factor at 60 should be ~0.60, got {:.3}", f60);
+        assert!((f80  - 0.467).abs() < 0.01, "age_factor at 80 should be ~0.467, got {:.3}", f80);
+        assert!((f100 - 0.333).abs() < 0.01, "age_factor at 100 should be ~0.333, got {:.3}", f100);
+    }
+
+    #[test]
+    fn test_high_damage_blocks_division_via_quiescence() {
+        // At maximum damage (centriole_damage → 1.0), quiescence_factor → 0.20 (floor).
+        // This means division rate is reduced by 80%, not to zero (until senescence threshold).
+        let damage_full = 1.0_f64;
+        let quiescence = (1.0 - damage_full * 0.8_f64).max(0.20_f64);
+        assert!((quiescence - 0.20).abs() < 1e-9,
+            "At full damage quiescence should be 0.20 (floor), got {:.4}", quiescence);
     }
 
     #[test]

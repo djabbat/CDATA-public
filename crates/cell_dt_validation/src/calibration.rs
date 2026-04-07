@@ -38,12 +38,12 @@ impl CalibrationParam {
     }
 
     fn propose(&self, rng: &mut StdRng) -> f64 {
-        let delta: f64 = rng.gen::<f64>() * 2.0 - 1.0;  // uniform(-1,1)
-        // Box-Muller for normal proposal
+        // Box-Muller transform: generate N(0,1) from two U(0,1) samples.
+        // BUG-C4 fix (2026-04-06): removed the dead `delta` variable that consumed
+        // RNG state (shifting all subsequent draws) without contributing to the proposal.
         let u1: f64 = rng.gen::<f64>().max(1e-12);
         let u2: f64 = rng.gen::<f64>();
         let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
-        let _ = delta;  // prefer Box-Muller
         (self.value + self.proposal_sd * z).clamp(self.min, self.max)
     }
 }

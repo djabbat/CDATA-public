@@ -1,6 +1,6 @@
-# CDATA Cell-DT v3.3.0
+# CDATA Cell-DT v3.4
 
-## Centriolar Damage Accumulation Theory of Aging — Digital Twin Simulator
+*Centriolar Damage Accumulation Theory of Aging — Digital Twin Simulator*
 
 [![Rust](https://img.shields.io/badge/rust-1.77%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
@@ -11,7 +11,7 @@
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 **Prerequisites:** [Rust 1.77+](https://rustup.rs) · Python 3.9+ · Git
 
@@ -49,21 +49,21 @@ bash run.sh build
 
 ---
 
-## 📖 Table of Contents
+## Table of Contents
 
-- [Theory in Brief](#-theory-in-brief)
-- [Key Mechanisms](#-key-mechanisms)
-- [Key Results](#-key-results)
-- [GUI Usage](#-gui-usage)
-- [Architecture](#-architecture)
-- [Interventions](#-interventions)
-- [Validation](#-validation)
-- [Publications](#-publications)
-- [Citation](#-citation)
+- Theory in Brief
+- Key Mechanisms
+- Key Results
+- GUI Usage
+- Architecture
+- Interventions
+- Validation
+- Publications
+- Citation
 
 ---
 
-## 🧬 Theory in Brief
+## Theory in Brief
 
 ### Central Concepts
 
@@ -77,7 +77,15 @@ The theory focuses on the maternal centriole of stem cells as a structure that a
 
 4. **Cumulative damage** — molecular modifications (oxidative, structural, PTM) accumulate in retained centrioles over successive divisions.
 
-### The Paradox of Aging
+### The Hypoxia Paradox (v3.4 — key new argument)
+
+Stem cells reside in hypoxic niches (1–3% O₂), maintain active telomerase, and are largely protected from oxidative stress. Telomeres do not shorten. By classical aging theories (free radical, telomere) — stem cells should not age. Yet they do age and reach a Hayflick-equivalent limit.
+
+CDATA resolves this: at every division, the daughter that retains stemness receives selectively *new* molecules, organelles, and compartments. The single exception is the maternal centriole — it is invariably transmitted to the stem daughter. No telomerase activation or antioxidant therapy can address this, because neither targets the centriole. Genuine stem cell rejuvenation requires centriole replacement or PTM reversal.
+
+**Evolutionary rationale:** The old centriole carries accumulated PTMs (glutamylation, detyrosination) encoding niche position and spindle orientation. Routing the new centriole to the stem daughter would destroy lineage fidelity — selection against this is stronger than selection against aging.
+
+### The Paradox of Tissue Aging
 
 Tissues are continuously renewed by stem cells, yet the organism still ages — precisely because stem cells carry an increasing burden of damage in their maternal centrioles.
 
@@ -107,7 +115,7 @@ D_max = 15 (normalised to [0,1]).
 
 ---
 
-## ⚙️ Key Mechanisms
+## Key Mechanisms
 
 | # | Mechanism | Description | R² |
 |---|-----------|-------------|-----|
@@ -122,7 +130,7 @@ D_max = 15 (normalised to [0,1]).
 
 ---
 
-## 📊 Key Results
+## Key Results
 
 | Metric | Value |
 |--------|-------|
@@ -149,7 +157,7 @@ D_max = 15 (normalised to [0,1]).
 
 ---
 
-## 🖥️ GUI Usage
+## GUI Usage
 
 The Streamlit GUI (`bash run.sh gui`) provides a full interactive interface for the Cell-DT simulator. It runs in your browser at `http://localhost:8501`.
 
@@ -184,7 +192,7 @@ Select language from the dropdown at the top of the sidebar (🌐).
 
 ---
 
-## 🚀 Simulation Commands
+## Simulation Commands
 
 ### Example
 
@@ -204,7 +212,7 @@ fn main() {
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 CDATA/
@@ -249,7 +257,7 @@ CDATA/
 
 ---
 
-## 💊 Interventions
+## Interventions
 
 The simulator supports 8 validated interventions:
 
@@ -266,7 +274,7 @@ The simulator supports 8 validated interventions:
 
 ---
 
-## 📈 Validation
+## Validation
 
 ### Calibration (MCMC, NUTS)
 
@@ -312,14 +320,14 @@ All critical corrections from peer review applied:
 
 ---
 
-## 📚 Publications
+## Publications
 
 Tkemaladze, J. (2023). Reduction, proliferation, and differentiation defects of stem cells over time: a consequence of selective accumulation of old centrioles in the stem cells? *Molecular Biology Reports*, 50(2).
 PMID: [36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)
 
 ---
 
-## 📝 Citation
+## Citation
 
 ```bibtex
 @article{Tkemaladze2023,
@@ -343,7 +351,7 @@ PMID: [36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)
 
 ---
 
-## 📧 Contact
+## Contact
 
 - **Theory & Development:** Dr. Jaba Tkemaladze
 - **GitHub:** [@djabbat](https://github.com/djabbat)

@@ -1,6 +1,6 @@
 # TODO: CDATA v3.0 — Реализация и деплой
 
-## Статус: 🟢 ВСЕ ЗАДАЧИ ВЫПОЛНЕНЫ (2026-03-29)
+## Статус: 🟡 БАГИ АНАЛИТИКИ (2026-04-06) → требуют исправления
 
 **Дата:** 2026-03-29
 **Версия концепции:** 3.0
@@ -9,6 +9,19 @@
 **GUI:** ✅ Streamlit 7 языков (EN/FR/ES/AR/ZH/RU/KA) · кнопка About · полная документация
 **Репозитории:** ✅ private (djabbat/CDATA-private) · ✅ public (djabbat/CDATA-public)
 **Peer review:** Round 6 → Major Revisions → ✅ Round 7 все исправления внесены → ✅ 5 peer-review фиксов применены 2026-03-29
+
+---
+
+## 🔴 Баги аналитического разбора (2026-04-06)
+
+| # | Файл | Описание | Приоритет | Статус |
+|---|------|----------|-----------|--------|
+| BUG-C1 | `aging_engine/src/lib.rs:394` | Циркадный модуль: CONCEPT §7 декларирует `sin(2π×(t+0.25))` (суточный), код реализует статический возрастной модификатор → обновить CONCEPT.md | Средний | 🔴 Fix CONCEPT |
+| BUG-C2 | `aging_engine/src/lib.rs:283-305` | `division_rate` CONCEPT включает `mtor_factor`, `ciliary_function`, `ros` напрямую — в AgingEngine они не применяются в формуле division_rate | Средний | ⏳ Уточнить |
+| BUG-C3 | `mitochondrial/src/system.rs:108` | Стандартный `update()` всегда передаёт O₂=21% → `mito_shield` всегда зажат в 0.05 при любом возрасте | Информационно | ✅ Задокументировано |
+| BUG-C4 | `cell_dt_validation/src/calibration.rs:40` | Мёртвая переменная `delta`: вычислена, потребляет RNG, но заменена на Box-Muller и отброшена | Низкий | 🔴 Fix |
+| GAP-C5 | `aging_engine` | CONCEPT: M(t) и C(t) — отдельные множители в уравнении. Код: ROS-фактор и CHIP не являются прямыми мультипликаторами в damage_rate | Средний | ⏳ Уточнить формулу |
+| GAP-C6 | `cell_dt_validation/src/calibration.rs` | MCMC в CONCEPT назван NUTS, реализован Metropolis-Hastings с адаптивным шагом | Информационно | ✅ Уточнить в тексте статьи |
 
 ---
 
