@@ -41,7 +41,7 @@ fn main() {
     println!("\n=== Intervention Comparison at age 80 ===");
     let all_ivs = InterventionSet {
         caloric_restriction: true, senolytics: true, antioxidants: true,
-        mtor_inhibition: true,     telomerase: true,  nk_boost: true,
+        mtor_inhibition: true,     telomerase: true,  htert: false, nk_boost: true,
         stem_cell_therapy: true,   epigenetic_reprogramming: true,
         strength: 1.0,
     };

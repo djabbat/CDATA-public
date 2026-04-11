@@ -217,6 +217,25 @@ SASP = сигнал о Ze-энтропии соседних клеток.
 
 ---
 
+## [2026-04-09] v4.0 — Аргумент ¬R и Эксперимент 3: hTERT + гипоксия
+**Source:** Статья "Centriolar Damage Accumulation Drives Replicative Senescence" (~/Desktop)
+**Status:** [✓ approved 2026-04-09] [CONCEPT/MD updated] [code: TODO V4-6..V4-9]
+
+**Изменения концепции:**
+1. Аргумент ¬R: центриоль ∈ ¬R (единственная не обновляемая структура) → логическое доказательство
+2. Эксперимент 3: заменён с roGFP-сенсора на hTERT+гипоксия (критический фальсификационный тест)
+3. Фундаментальная форма повреждения: `D(n) = 1 − e^{−rn}`, k_rep ≈ 0
+4. Dual-Clock уточнён: центриоль = универсальные часы; теломеры/ROS = контекст-зависимые модуляторы
+5. O₀ = 5% явно введён (эквивалентно K_O2 = 0.2)
+
+**Предстоящие изменения кода (V4-6..V4-9):**
+- hTERT-интервенция как отдельный путь (не через telomerase_intervention)
+- `examples/htert_hypoxia_test.rs`
+- `examples/not_r_argument.rs`
+- `TissueState::current_o2_percent`
+
+---
+
 ## [2026-04-04] CHIP frailty integration
 **Source:** Jaiswal 2017 (PMID: 28792876): CHIP VAF correlates with frailty independent of SASP
 **Status:** [✓ approved 2026-04-04] [✓✓ implemented 2026-04-04]

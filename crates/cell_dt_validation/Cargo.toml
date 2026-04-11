@@ -39,3 +39,9 @@ name = "circadian_validation"
 
 [[example]]
 name = "o2_dose_response"
+
+[[example]]
+name = "htert_hypoxia_test"
+
+[[example]]
+name = "not_r_argument"

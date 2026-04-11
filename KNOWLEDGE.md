@@ -10,6 +10,15 @@ The maternal centriole of stem cells irreversibly accumulates molecular damage t
 
 **Source:** Tkemaladze J. Mol Biol Rep 2023 (PMID 36583780)
 
+### The ¬R Logical Argument (v4.0 — canonical)
+Let S = all molecular structures in a cell. Partition into R (renewed at division) and ¬R (not renewed).
+- R = {proteins, lipids, DNA, mitochondria, nucleolus, ...} — all have repair/turnover/biogenesis mechanisms
+- ¬R = {centriole} — template-based inheritance, no substantial turnover, no repair
+
+**Therefore:** The centriole is the **only** structure capable of serving as a cell-autonomous, division-counting aging clock. This is a logical, not merely empirical, conclusion. No alternative candidate exists.
+
+**Critical test:** hTERT overexpression + 2% O₂. If cells still senesce after finite divisions (with centriolar damage despite long telomeres) → ¬R argument confirmed. If indefinite proliferation → falsified.
+
 ### Four Therapeutic Directions
 1. **Centriole replacement** — direct repair or replacement of damaged centrioles
 2. **Proteasomal clearance** — enhanced removal of accumulated damage
@@ -63,8 +72,16 @@ The maternal centriole of stem cells irreversibly accumulates molecular damage t
 
 ---
 
-## 3. Core Equation
+## 3. Core Equations
 
+**Fundamental (single-cell, saturable kinetics):**
+```
+dD/dn = r(1 - D),   k_rep ≈ 0
+D(n) = 1 - exp(-rn),   r = α·ν·β·(1 - mito_shield)
+N_Hayflick = D_crit / r = D_crit / [α·ν·β·(1 - mito_shield)]
+```
+
+**Population simulator (multi-factor):**
 ```
 d(Damage)/dt = α × ν(t) × (1 - Π(t)) × S(t) × A(t)
 ```
@@ -75,6 +92,10 @@ d(Damage)/dt = α × ν(t) × (1 - Π(t)) × S(t) × A(t)
 | Π(t) | declines with age | Protection factor |
 | S(t) | non-monotonic | SASP hormetic modifier |
 | A(t) | stochastic | Asymmetric division fidelity |
+
+**Key calibration (mito_shield):**
+- `mito_shield([O₂]) = s_max × φ_cell × exp(-[O₂]/O₀)`, O₀ = 5%, s_max = 0.99
+- Normoxia (21%, fibroblast): N ≈ 50 ✓; Hypoxia (2%, progenitor): N ≈ 149 ✓
 
 ---
 
@@ -144,7 +165,7 @@ d(Damage)/dt = α × ν(t) × (1 - Π(t)) × S(t) × A(t)
 
 ## 8. Key Literature
 
-| PMID | Authors | Finding |
+| PMID / DOI | Authors | Finding |
 |------|---------|---------|
 | 36583780 | Tkemaladze 2023 | Core CDATA theory |
 | 28792876 | Jaiswal 2017 | CHIP VAF: 7% at age 70 |
@@ -157,3 +178,55 @@ d(Damage)/dt = α × ν(t) × (1 - Π(t)) × S(t) × A(t)
 | 25651178 | Sun 2015 | mito_shield exponential |
 | 16168009 | Balaban 2005 | ROS 2.2× increase 20–70 yr |
 | 10818156 | Franceschi 2000 | Italian centenarian inflamm-aging |
+| 10.1096/fj.201902376R | Peters-Hall 2020 | >200 PD HBECs at 2% O₂ + ROCKi |
+| 10.1038/ncomms1245 | Januschke 2011 | Drosophila neuroblasts — mother centrosome → differentiating daughter |
+| 10.1126/science.1134910 | Yamashita 2007 | Drosophila GSC — mother centrosome → self-renewed stem cell |
+| 10.1111/acel.13766 | Wu 2023 | Centrosome amplification → variant SASP → HIF-1α |
+| — | Tkemaladze & Chichinadze 2005 | Centriolar hypothesis of aging (original); cells without centrioles = totipotent | Biochemistry (Moscow) DOI: 10.1007/s10541-005-0261-6 |
+
+---
+
+## Новые данные (апрель 2026) — из NEWS.md
+
+### Центросомы, SASP и иммуноускользание (2025)
+
+**Источник:** [Drivers of Centrosome Abnormalities: Senescence Progression and Tumor Immune Escape — ScienceDirect 2025](https://www.sciencedirect.com/science/article/abs/pii/S1044579X25000173)
+
+- Центросомные аберрации — hallmarks рака и сенесценции
+- **ECASP** (extra centrosome-associated secretory phenotype) — отдельная секреторная программа, опосредованная хронической **NF-κB** активацией
+- ECASP: ↑IL-8, ↑GDF-15, ↑ANGPTL4 → иммуносупрессивное TME (Th2 + M2 macrophages)
+- IL-8 одновременно компонент SASP — связывает центросомный путь и воспалительное старение
+
+**Интеграция в CDATA:** ECASP = новый слой модели после накопления центриолярного повреждения:
+```
+CDATA damage → centrosome amplification → NF-κB chronic → ECASP → TME → tumor immune escape
+                                                            ↓
+                                                       IL-8 → SASP amplification → inflammaging
+```
+
+---
+
+### PLK4 — клинические испытания ингибитора (2025)
+
+**Источник:** [PLK4: Master Regulator of Centriole Duplication — Cytoskeleton 2025](https://onlinelibrary.wiley.com/doi/full/10.1002/cm.22031)
+
+- PLK4 = master regulator дупликации центриолей; контролирует баланс 2 центросом на делящуюся клетку
+- **RP-1664** — orally bioavailable PLK4 inhibitor, вошёл в клинические испытания (2025)
+- Терапевтический вектор: ингибирование гиперактивного PLK4 = предотвращение центросомной амплификации
+
+**Интеграция в CDATA:** Прямая поддержка терапевтического направления #2 (регуляция дупликации/протеасомальная очистка). Добавить PLK4 как ключевую мишень.
+
+---
+
+### Двойная роль сенесценции в онкогенезе (2025–2026)
+
+**Источники:**
+- [Senescence in Cancer — Cancer Cell 2025](https://www.cell.com/cancer-cell/fulltext/S1535-6108(25)00224-7)
+- [Cellular Senescence in Precancer Lesions — ScienceDirect 2025](https://www.sciencedirect.com/science/article/abs/pii/S1535610825004477)
+
+- В предраке: **опухолесупрессорный барьер** (ранняя стадия) → **про-туморальный PreTME** (поздняя стадия через паракринный SASP)
+- Senescent fraction dynamics: не статична, SASP меняет микроокружение со временем
+
+**Интеграция в CDATA:** Подтверждает нелинейность SASP модели (сигмоидальный переход от полезного к вредному SASP). Уточнить `nfkb_clamp` и переход beneficial→harmful.
+
+*Обновлено: 2026-04-10 | источник: CommonHealth/NEWS.md*

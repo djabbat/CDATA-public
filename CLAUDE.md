@@ -1,12 +1,21 @@
 
 # CLAUDE.md — CDATA (Cell-DT v3.0)
 
+## Ecosystem Context
+
+**CDATA является подпроектом CommonHealth Ecosystem.**
+**Parent:** `~/Desktop/CommonHealth/` — центральная платформа экосистемы долголетия
+**Git:** `djabbat/CommonHealth` (монорепозиторий)
+**Role:** CDATA — объясняет ПОЧЕМУ χ_Ze важен (MCAI ↔ χ_Ze через D_norm). Ze·Guide ссылается на CDATA DOI. Lab использует CDATA-гипотезы. Данные CDATA обосновывают компонент "организм" в 4-факторной модели здоровья.
+
+---
+
 ## Project Identity
 
 **CDATA** — Centriolar Damage Accumulation Theory of Aging
 **Cell-DT** — Digital Twin Simulator of Human Aging
 **Version:** 3.0 | **Status:** R²=0.84 validated
-**Location:** `~/Desktop/CDATA/`
+**Location:** `~/Desktop/CommonHealth/CDATA/`
 **Repos:** private `djabbat/CDATA` · public `djabbat/CDATA-public`
 
 ---

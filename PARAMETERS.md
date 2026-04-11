@@ -2,9 +2,9 @@
 
 **Source of truth:** `crates/cell_dt_core/src/fixed_params.rs` → `FixedParameters::default()`
 **Total parameters:** 32 (reduced from 120 after 5 rounds of peer review)
-**Calibration:** MCMC / NUTS on 62,000 patient records, ages 20–50
-**Validation R²:** 0.84 (independent validation: frailty + mortality + epigenetic clock)
-**Training R²:** 0.98 (scale-anchored, MCMC calibration cohort 20–50 yr) — use 0.84 in all publications and grant materials
+**Calibration:** Metropolis-Hastings MCMC (pilot=1000, main=5000 iter; R-hat<1.05) on **5 biomarker trajectories × 7 age points** derived from published population studies (NHANES, Jaiswal 2017, Horvath 2013, Franceschi 2000). **2 free parameters** (τ_protection, Π₀); 30 fixed by biological justification. No individual patient records used.
+**Validation R²:** 0.84 (independent cross-sectional validation: frailty + mortality + epigenetic clock) — **use this in all publications and grant materials**
+**Calibration fit R²:** 0.89 (2 parameters fit to 35 literature-derived data points — not an independent validation metric; do NOT cite as validation)
 
 ---
 

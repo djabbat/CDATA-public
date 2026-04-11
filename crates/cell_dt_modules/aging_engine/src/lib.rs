@@ -95,7 +95,7 @@ impl SimulationPreset {
 
 // ── Interventions ─────────────────────────────────────────────────────────────
 
-/// Eight evidence-based interventions applied during `step()`.
+/// Nine evidence-based interventions applied during `step()`.
 /// `strength` scales each effect from 0.0 (off) to 1.0 (full).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterventionSet {
@@ -107,8 +107,21 @@ pub struct InterventionSet {
     pub antioxidants: bool,
     /// mTOR inhibition (rapamycin): +20% protection factor
     pub mtor_inhibition: bool,
-    /// Telomerase activation: −50% telomere loss per division
+    /// Telomerase activation (partial): −50% differentiated telomere loss per division.
+    /// See also `htert` for full overexpression.
     pub telomerase: bool,
+    /// hTERT overexpression (Experiment 3, CDATA v4.0): fully prevents differentiated
+    /// telomere shortening. Differentiating daughters maintain telomere length at 1.0.
+    ///
+    /// CDATA prediction (¬R argument): even with hTERT active, centriolar damage
+    /// continues to accumulate → senescence is triggered by SenescenceTrigger::CentriolarDamage,
+    /// NOT by SenescenceTrigger::TelomereShortening.
+    ///
+    /// Falsification condition: if hTERT + hypoxia (O₂ = 2%) yields indefinite
+    /// proliferation (no senescence), the centriolar clock is not autonomous.
+    ///
+    /// Combine with `tissue.current_o2_percent = 2.0` to replicate Experiment 3.
+    pub htert: bool,
     /// NK cell boost (IL-15/adoptive therapy): +30% NK efficiency
     pub nk_boost: bool,
     /// Stem cell therapy: floor stem_cell_pool at 0.2
@@ -127,6 +140,7 @@ impl Default for InterventionSet {
             antioxidants:             false,
             mtor_inhibition:          false,
             telomerase:               false,
+            htert:                    false,
             nk_boost:                 false,
             stem_cell_therapy:        false,
             epigenetic_reprogramming: false,
@@ -138,8 +152,8 @@ impl Default for InterventionSet {
 impl InterventionSet {
     pub fn any_active(&self) -> bool {
         self.caloric_restriction || self.senolytics || self.antioxidants
-        || self.mtor_inhibition || self.telomerase || self.nk_boost
-        || self.stem_cell_therapy || self.epigenetic_reprogramming
+        || self.mtor_inhibition || self.telomerase || self.htert
+        || self.nk_boost || self.stem_cell_therapy || self.epigenetic_reprogramming
     }
 }
 
@@ -294,6 +308,16 @@ impl AgingEngine {
         // As centriole damage increases → P_A decreases → more damage retained by daughters.
         let p_a = self.params.inheritance_probability_damage(self.tissue.centriole_damage);
 
+        // M3: Circadian damage multiplier (CONCEPT.md § 7, PMID: 28886385).
+        // damage_multiplier(t) = 1.0 + circadian_amplitude × sin(2π×(t_in_year + 0.25))
+        // t_in_year = fractional position within the current calendar year (0=Jan, 0.5=Jul).
+        // At t_in_year=0.0 (winter, phase +0.25): multiplier peaks → higher damage.
+        // At t_in_year=0.5 (summer, phase +0.75): multiplier troughs → lower damage.
+        let t_in_year = age_years.fract();
+        let circadian_modifier = 1.0
+            + self.params.circadian_amplitude
+                * (2.0 * std::f64::consts::PI * (t_in_year + 0.25)).sin();
+
         // --- Core CDATA equation (v3.2.3): dD/dt = α·ν·(1−Π)·S·P_A·M·C ---
         let damage_rate = self.params.alpha
             * division_rate
@@ -302,7 +326,8 @@ impl AgingEngine {
             * (1.0 - self.tissue_params.tolerance)
             * ros_damage_factor
             * cr_factor
-            * (1.0 - p_a);  // (1 - P_A): lower fidelity → higher damage transfer per division
+            * (1.0 - p_a)   // (1 - P_A): lower fidelity → higher damage transfer per division
+            * circadian_modifier; // CONCEPT §7: seasonal circadian damage oscillation
 
         self.tissue.centriole_damage = (self.tissue.centriole_damage + damage_rate * dt).min(1.0);
         self.tissue.stem_cell_pool   = (1.0 - self.tissue.centriole_damage * 0.8).max(0.0);
@@ -320,8 +345,20 @@ impl AgingEngine {
         // M1b: Differentiated progeny telomere — SHORTENS with each division.
         // Differentiating daughters lack telomerase; they shorten ~40 bp/yr in HSC context
         // (Lansdorp 2005, PMID: 15653082). Floor at 0.12 (Hayflick-equivalent).
-        // `telomerase` intervention reduces loss by 50% (targets somatic progeny).
-        let telo_loss_factor = if ivs.telomerase { 0.5 * ivs.strength } else { 0.0 };
+        //
+        // hTERT overexpression (Experiment 3, CDATA v4.0 / ¬R argument):
+        //   htert=true → telo_loss_factor = 1.0 → zero telomere loss (full telomerase in all cells).
+        //   This completely eliminates the telomere clock from senescence.
+        //   CDATA prediction: senescence still occurs via SenescenceTrigger::CentriolarDamage.
+        //
+        // telomerase=true → partial protection: −50% telomere loss (endogenous upregulation).
+        let telo_loss_factor = if ivs.htert {
+            1.0  // hTERT overexpression: full telomere maintenance, no shortening
+        } else if ivs.telomerase {
+            0.5 * ivs.strength
+        } else {
+            0.0
+        };
         let diff_telo_loss = division_rate * DIFF_TELOMERE_LOSS_PER_DIVISION
             * (1.0 - telo_loss_factor) * dt;
         self.tissue.differentiated_telomere_length =
@@ -388,14 +425,7 @@ impl AgingEngine {
         let sasp_chip_boost = (self.chip_sys.sasp_amplification() - 1.0) * 0.1 * dt;
         self.inflamm.sasp_level = (self.inflamm.sasp_level + sasp_chip_boost).min(1.0);
 
-        // M3: circadian amplitude modulates ROS clearance efficiency (PMID: 28886385).
-        // Declining circadian rhythm with age progressively impairs oxidative repair.
-        // At age 100: ROS is amplified by up to (1 - circadian_amplitude) × 20% = 16%.
-        // Formula: ros_excess_factor = (1 - amplitude) × (age/100) × 0.2
-        // ros_new = ros * (1 + ros_excess_factor), clamped at [0, 2.5].
-        let circadian_ros_excess = (1.0 - self.params.circadian_amplitude)
-            * (age_years / 100.0) * 0.2;
-        self.mito.ros_level = (self.mito.ros_level * (1.0 + circadian_ros_excess)).min(2.5);
+        // (M3 circadian multiplier is now applied directly to damage_rate above, per CONCEPT §7.)
 
         // MCAI: Model Composite Aging Index — unweighted 5-component mean (article v3.2.3).
         // Components: D(t), σ(t), (1−stem_pool), (1−diff_telo).max(0), chip_vaf.

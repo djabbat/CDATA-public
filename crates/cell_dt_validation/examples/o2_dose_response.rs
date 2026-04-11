@@ -13,7 +13,7 @@
 //!   [5.0%  O₂] HematopoieticStem:    N_Hayflick ≈ 101  (HSC niche)
 //!   [21.0% O₂] Fibroblast:           N_Hayflick ≈ 50   (Hayflick 1961)
 
-use cell_dt_mitochondrial::system::{mito_shield_for_o2, predicted_hayflick, CellTypeShield};
+use cell_dt_mitochondrial::{mito_shield_for_o2, predicted_hayflick, CellTypeShield};
 
 fn main() {
     println!("═══════════════════════════════════════════════════════════════════");
