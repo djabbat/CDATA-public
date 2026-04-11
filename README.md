@@ -355,5 +355,5 @@ PMID: [36583780](https://pubmed.ncbi.nlm.nih.gov/36583780/)
 
 - **Theory & Development:** Dr. Jaba Tkemaladze
 - **GitHub:** [@djabbat](https://github.com/djabbat)
-- **Email:** jtkemaladze@longevity.ge
+- **Email:** jaba@longevity.ge
 - **ORCID:** [0000-0001-8651-7243](https://orcid.org/0000-0001-8651-7243)
