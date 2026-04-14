@@ -1,0 +1,47 @@
+[package]
+name = "cell_dt_validation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cell_dt_core = { path = "../cell_dt_core" }
+cell_dt_mitochondrial = { path = "../cell_dt_modules/mitochondrial" }
+cell_dt_inflammaging = { path = "../cell_dt_modules/inflammaging" }
+cell_dt_tissue_specific = { path = "../cell_dt_modules/tissue_specific" }
+cell_dt_asymmetric_division = { path = "../cell_dt_modules/asymmetric_division" }
+cell_dt_aging_engine = { path = "../cell_dt_modules/aging_engine" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+rand = "0.8"
+
+[[example]]
+name = "basic_simulation"
+
+[[example]]
+name = "mcmc_calibration"
+
+[[example]]
+name = "centenarian_prediction"
+
+[[example]]
+name = "param_correlation"
+
+[[example]]
+name = "sensitivity_analysis"
+
+[[example]]
+name = "convergence_check"
+
+[[example]]
+name = "circadian_validation"
+
+[[example]]
+name = "o2_dose_response"
+
+[[example]]
+name = "htert_hypoxia_test"
+
+[[example]]
+name = "not_r_argument"
