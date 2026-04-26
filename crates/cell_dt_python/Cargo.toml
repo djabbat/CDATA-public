@@ -1,0 +1,11 @@
+[package]
+name = "cell_dt_python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cell_dt_core = { path = "../cell_dt_core" }
+pyo3 = { version = "0.20", features = ["extension-module"] }

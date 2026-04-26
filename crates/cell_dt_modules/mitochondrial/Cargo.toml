@@ -1,0 +1,9 @@
+[package]
+name = "cell_dt_mitochondrial"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cell_dt_core = { path = "../../cell_dt_core" }
+serde = { version = "1.0", features = ["derive"] }
+rand = "0.8"

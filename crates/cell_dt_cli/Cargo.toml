@@ -1,0 +1,19 @@
+[package]
+name = "cell_dt_cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jaba Tkemaladze <jaba@longevity.ge>"]
+description = "MCOA Counter #1 (CDATA, Centriolar polyglutamylation) — thin CLI wrapper for comparison harness"
+license = "MIT"
+
+[[bin]]
+name = "cell-dt-sim"
+path = "src/main.rs"
+
+[lib]
+name = "cell_dt_cli"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

@@ -1,0 +1,97 @@
+{
+  "N": 4096,
+  "var_Y": 0.038581,
+  "S1_sum": 0.6085,
+  "results": [
+    {
+      "rank": 1,
+      "param": "nu",
+      "S1": 0.416,
+      "ST": 0.7265
+    },
+    {
+      "rank": 2,
+      "param": "alpha",
+      "S1": 0.1925,
+      "ST": 0.5107
+    },
+    {
+      "rank": 3,
+      "param": "fibrosis_k",
+      "S1": 0.0,
+      "ST": 0.0
+    },
+    {
+      "rank": 4,
+      "param": "regen_factor",
+      "S1": 0.0,
+      "ST": 0.0069
+    },
+    {
+      "rank": 5,
+      "param": "epigen_rate",
+      "S1": 0.0,
+      "ST": 0.0005
+    },
+    {
+      "rank": 6,
+      "param": "telomere_loss",
+      "S1": 0.0,
+      "ST": 0.0002
+    },
+    {
+      "rank": 7,
+      "param": "chip_vaf_70",
+      "S1": 0.0,
+      "ST": 0.0009
+    },
+    {
+      "rank": 8,
+      "param": "sasp_thresh",
+      "S1": 0.0,
+      "ST": 0.0345
+    },
+    {
+      "rank": 9,
+      "param": "nk_decay",
+      "S1": 0.0,
+      "ST": 0.0
+    },
+    {
+      "rank": 10,
+      "param": "mito_shield",
+      "S1": 0.0,
+      "ST": 0.0
+    },
+    {
+      "rank": 11,
+      "param": "tau0",
+      "S1": 0.0,
+      "ST": 0.0
+    },
+    {
+      "rank": 12,
+      "param": "D0",
+      "S1": 0.0,
+      "ST": 0.0808
+    },
+    {
+      "rank": 13,
+      "param": "k",
+      "S1": 0.0,
+      "ST": 0.0472
+    }
+  ],
+  "top5": [
+    "nu",
+    "alpha",
+    "fibrosis_k",
+    "regen_factor",
+    "epigen_rate"
+  ],
+  "alpha_rank": 2,
+  "k_rank": 13,
+  "calibration": "biological (nu=1.0, alpha=0.10, k=0.50)",
+  "reliable": true,
+  "note": "N=4096; full N=10000 before Aging Cell"
+}

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <meta name="csrf-token" content={Phoenix.Controller.get_csrf_token()}/>
+    <.live_title suffix=" · CDATA">
+      <%= assigns[:page_title] || "Centriolar Damage Accumulation Theory" %>
+    </.live_title>
+    <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"}/>
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}></script>
+  </head>
+  <body class="h-full">
+    <div class="min-h-full">
+      <div class="bg-gradient-to-r from-blue-600 to-purple-700 pb-32">
+        <nav class="bg-transparent">
+          <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <div class="border-b border-blue-500 border-opacity-25">
+              <div class="flex items-center justify-between h-16 px-4 sm:px-0">
+                <div class="flex items-center">
+                  <div class="flex-shrink-0">
+                    <svg class="h-8 w-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 2L1 21h22L12 2zm0 3.84L19.5 19h-15L12 5.84z"/>
+                    </svg>
+                  </div>
+                  <div class="hidden md:block">
+                    <div class="ml-10 flex items-baseline space-x-4">
+                      <a href="https://longevitycommon.xyz" class="text-gray-300 hover:text-white px-3 py-2 text-sm font-medium">
+                        LongevityCommon
+                      </a>
+                      <span class="text-white px-3 py-2 text-sm font-medium border-b-2 border-white">
+                        CDATA
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div class="text-white text-sm">
+                  Counter #2 (Centriolar) in MCOA
+                </div>
+              </div>
+            </div>
+          </div>
+        </nav>
+        <header class="py-10">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h1 class="text-3xl font-bold text-white">
+              Asymmetric Centriolar Damage Accumulation Theory of Aging
+            </h1>
+            <p class="mt-2 text-lg text-blue-200">
+              The first quantitative molecular mechanism for the centrosome misorientation hallmark of stem cell aging
+            </p>
+          </div>
+        </header>
+      </div>
+
+      <main class="-mt-32">
+        <div class="max-w-7xl mx-auto pb-12 px-4 sm:px-6 lg:px-8">
+          <div class="bg-white rounded-lg shadow px-5 py-6 sm:px-6">
+            <%= @inner_content %>
+          </div>
+        </div>
+      </main>
+
+      <footer class="bg-white border-t border-gray-200">
+        <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+          <div class="text-center text-gray-500 text-sm">
+            <p>CDATA v5.2 — LongevityCommon subproject • Backend: <%= System.get_env("BACKEND_URL", "http://localhost:3003") %></p>
+            <p class="mt-1">Canonical corrections applied: 2026-04-22 • No χ_Ze validated biomarker claims</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
